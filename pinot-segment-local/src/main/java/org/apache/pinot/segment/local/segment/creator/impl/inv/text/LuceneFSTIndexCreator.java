@@ -75,7 +75,7 @@ public class LuceneFSTIndexCreator implements FSTIndexCreator {
   @Override
   public void add(String document) {
     try {
-      _fstBuilder.addEntry(document, _dictId);
+      _fstBuilder.addEntry(document.toLowerCase(), _dictId);
       _dictId++;
     } catch (IOException ex) {
       throw new RuntimeException("Unable to load the schema file", ex);

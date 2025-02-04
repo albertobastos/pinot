@@ -66,7 +66,7 @@ public class LuceneFSTIndexReader implements TextIndexReader {
   public ImmutableRoaringBitmap getDictIds(String searchQuery) {
     try {
       MutableRoaringBitmap dictIds = new MutableRoaringBitmap();
-      List<Long> matchingIds = RegexpMatcher.regexMatch(searchQuery, _readFST);
+      List<Long> matchingIds = RegexpMatcher.regexMatch(searchQuery.toLowerCase(), _readFST);
       for (Long matchingId : matchingIds) {
         dictIds.add(matchingId.intValue());
       }

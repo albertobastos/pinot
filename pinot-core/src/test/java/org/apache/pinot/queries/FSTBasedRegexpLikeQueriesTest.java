@@ -26,7 +26,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 import javax.annotation.Nullable;
 import org.apache.commons.io.FileUtils;
 import org.apache.pinot.common.response.broker.BrokerResponseNative;
@@ -62,8 +61,6 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import static org.apache.pinot.spi.config.table.RoutingConfig.REPLICA_GROUP_INSTANCE_SELECTOR_TYPE;
-import static org.apache.pinot.spi.config.table.RoutingConfig.STRICT_REPLICA_GROUP_INSTANCE_SELECTOR_TYPE;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 
@@ -460,11 +457,22 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
     testInterSegmentsCountQuery(query, 1024);
   }
 
+  @Test(dataProvider = "fstTypeProvider")
+  public void testFSTCaseInsensitiveness(FSTType fstType) {
+    setIndexSegment(fstType);
+
+    // Select queries on col with FST + inverted index.
+    String query = "SELECT INT_COL, URL_COL FROM MyTable WHERE DOMAIN_NAMES like '%domain1%' LIMIT 50000";
+    testInnerSegmentSelectionQuery(query, 512, null);
+
+    query = "SELECT INT_COL, URL_COL FROM MyTable WHERE DOMAIN_NAMES like '%DOMAIN1%' LIMIT 50000";
+    testInnerSegmentSelectionQuery(query, 512, null);
+  }
+
   @DataProvider(name = "fstTypeProvider")
   public FSTType[] getFstTypes() {
     return new FSTType[]{
         FSTType.LUCENE, FSTType.NATIVE
     };
   }
-
 }

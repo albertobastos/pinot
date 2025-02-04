@@ -65,7 +65,7 @@ public class NativeFSTIndexCreator implements FSTIndexCreator {
   // Expects dictionary entries in sorted order.
   @Override
   public void add(String document) {
-    _fstBuilder.add(document.getBytes(), 0, document.length(), _dictId);
+    _fstBuilder.add(document.toLowerCase().getBytes(), 0, document.length(), _dictId);
     _dictId++;
   }
 

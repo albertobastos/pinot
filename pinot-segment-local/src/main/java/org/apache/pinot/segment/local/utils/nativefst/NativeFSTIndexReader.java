@@ -62,7 +62,7 @@ public class NativeFSTIndexReader implements TextIndexReader {
   public ImmutableRoaringBitmap getDictIds(String searchQuery) {
     try {
       RoaringBitmapWriter<MutableRoaringBitmap> writer = RoaringBitmapWriter.bufferWriter().get();
-      RegexpMatcher.regexMatch(searchQuery, _fst, writer::add);
+      RegexpMatcher.regexMatch(searchQuery.toLowerCase(), _fst, writer::add);
       return writer.get();
     } catch (Exception e) {
       throw new RuntimeException("Caught exception while matching regex: " + searchQuery, e);
