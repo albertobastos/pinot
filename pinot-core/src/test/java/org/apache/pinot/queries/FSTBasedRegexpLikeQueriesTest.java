@@ -22,8 +22,10 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import javax.annotation.Nullable;
 import org.apache.commons.io.FileUtils;
@@ -57,8 +59,11 @@ import org.apache.pinot.spi.utils.builder.TableConfigBuilder;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import static org.apache.pinot.spi.config.table.RoutingConfig.REPLICA_GROUP_INSTANCE_SELECTOR_TYPE;
+import static org.apache.pinot.spi.config.table.RoutingConfig.STRICT_REPLICA_GROUP_INSTANCE_SELECTOR_TYPE;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 
@@ -86,7 +91,7 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
 
   private TableConfig _tableConfig;
   private IndexSegment _indexSegment;
-  private List<IndexSegment> _indexSegments;
+  private Map<FSTType, IndexSegment> _indexSegments;
 
   @Override
   protected String getFilter() {
@@ -100,7 +105,11 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
 
   @Override
   protected List<IndexSegment> getIndexSegments() {
-    return _indexSegments;
+    return new ArrayList<>(_indexSegments.values());
+  }
+
+  private void setIndexSegment(FSTType fstType) {
+    _indexSegment = _indexSegments.get(fstType);
   }
 
   @BeforeClass
@@ -108,15 +117,15 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
       throws Exception {
     FileUtils.deleteQuietly(INDEX_DIR);
 
-    List<IndexSegment> segments = new ArrayList<>();
-    for (FSTType fstType : Arrays.asList(FSTType.LUCENE, FSTType.NATIVE)) {
+    Map<FSTType, IndexSegment> segments = new HashMap<>();
+    for (FSTType fstType : getFstTypes()) {
       buildSegment(fstType);
       IndexLoadingConfig indexLoadingConfig = new IndexLoadingConfig(_tableConfig, SCHEMA);
       ImmutableSegment segment = ImmutableSegmentLoader.load(new File(INDEX_DIR, SEGMENT_NAME), indexLoadingConfig);
-      segments.add(segment);
+      segments.put(fstType, segment);
     }
 
-    _indexSegment = segments.get(ThreadLocalRandom.current().nextInt(2));
+    _indexSegment = null; // must be set before each test
     _indexSegments = segments;
   }
 
@@ -229,10 +238,15 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
             Collections.singletonList(new Object[]{expectedCount})));
   }
 
-  @Test
-  public void testFSTBasedRegexLike() {
+  @Test(dataProvider = "fstTypeProvider")
+  public void testFSTBasedRegexLike(FSTType fstType) {
+    setIndexSegment(fstType);
+
     // Select queries on col with FST + inverted index.
     String query = "SELECT INT_COL, URL_COL FROM MyTable WHERE REGEXP_LIKE(DOMAIN_NAMES, 'www.domain1.*') LIMIT 50000";
+    testInnerSegmentSelectionQuery(query, 256, null);
+
+    query = "SELECT INT_COL, URL_COL FROM MyTable WHERE REGEXP_LIKE(DOMAIN_NAMES, 'www.domain1.*') LIMIT 50000";
     testInnerSegmentSelectionQuery(query, 256, null);
 
     query = "SELECT INT_COL, URL_COL FROM MyTable WHERE REGEXP_LIKE(DOMAIN_NAMES, 'www.sd.domain1.*') LIMIT 50000";
@@ -291,8 +305,9 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
     testInnerSegmentSelectionQuery(query, 5, null);
   }
 
-  @Test
-  public void testLikeOperator() {
+  @Test(dataProvider = "fstTypeProvider")
+  public void testLikeOperator(FSTType fstType) {
+    setIndexSegment(fstType);
 
     String query = "SELECT INT_COL, URL_COL FROM MyTable WHERE DOMAIN_NAMES LIKE 'www.dom_in1.com' LIMIT 50000";
     testInnerSegmentSelectionQuery(query, 64, null);
@@ -313,8 +328,10 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
     testInnerSegmentSelectionQuery(query, 256, null);
   }
 
-  @Test
-  public void testFSTBasedRegexpLikeWithOtherFilters() {
+  @Test(dataProvider = "fstTypeProvider")
+  public void testFSTBasedRegexpLikeWithOtherFilters(FSTType fstType) {
+    setIndexSegment(fstType);
+
     // Select queries on columns with combination of FST Index , (FST + Inverted Index), No index and other constraints.
     String query = "SELECT INT_COL, URL_COL FROM MyTable WHERE REGEXP_LIKE(URL_COL, '.*/a') AND "
         + "REGEXP_LIKE(NO_INDEX_COL, 'test1') LIMIT 50000";
@@ -349,8 +366,10 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
     testInnerSegmentSelectionQuery(query, 1, expected);
   }
 
-  @Test
-  public void testGroupByOnFSTBasedRegexpLike() {
+  @Test(dataProvider = "fstTypeProvider")
+  public void testGroupByOnFSTBasedRegexpLike(FSTType fstType) {
+    setIndexSegment(fstType);
+
     String query;
     query = "SELECT DOMAIN_NAMES, count(*) FROM MyTable WHERE REGEXP_LIKE(DOMAIN_NAMES, 'www.domain1.*') GROUP BY "
         + "DOMAIN_NAMES LIMIT 50000";
@@ -390,8 +409,10 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
     matchGroupResult(result, "www.domain1.com/a", 64);
   }
 
-  @Test
-  public void testInterSegment() {
+  @Test(dataProvider = "fstTypeProvider")
+  public void testInterSegment(FSTType fstType) {
+    setIndexSegment(fstType);
+
     String query = "SELECT INT_COL, URL_COL FROM MyTable WHERE REGEXP_LIKE(DOMAIN_NAMES, 'www.domain1.*') AND "
         + "REGEXP_LIKE(URL_COL, '.*/b') AND REGEXP_LIKE(NO_INDEX_COL, 'test2') AND INT_COL=1001 LIMIT 50000";
     List<Object[]> expected = new ArrayList<>();
@@ -438,4 +459,12 @@ public class FSTBasedRegexpLikeQueriesTest extends BaseQueriesTest {
     query = "SELECT count(*) FROM MyTable WHERE REGEXP_LIKE(DOMAIN_NAMES, 'www.domain1.*')";
     testInterSegmentsCountQuery(query, 1024);
   }
+
+  @DataProvider(name = "fstTypeProvider")
+  public FSTType[] getFstTypes() {
+    return new FSTType[]{
+        FSTType.LUCENE, FSTType.NATIVE
+    };
+  }
+
 }
