@@ -101,6 +101,10 @@ public class RequestContextUtils {
     }
   }
 
+  public static FilterContext getFilter(Expression thriftExpression) {
+    return getFilter(thriftExpression, null);
+  }
+
   /**
    * Converts the given Thrift {@link Expression} into a {@link FilterContext}.
    * <p>NOTE: Currently the query engine only accepts string literals as the right-hand side of the predicate, so we

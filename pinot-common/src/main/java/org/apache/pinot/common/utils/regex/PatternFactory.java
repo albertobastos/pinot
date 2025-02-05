@@ -31,11 +31,16 @@ public class PatternFactory {
     _regexClass = RegexClass.valueOf(regexClass);
   }
 
+  public static org.apache.pinot.common.utils.regex.Pattern compile(String regex) {
+    return compile(regex, false);
+  }
+
   /**
    * Returns a Pattern for the regex class specified in PatternFactory.init(). If pattern factory is not initialized,
    * then returns a Pattern using the java.util.regex class
    *
    * @param regex to compile the Pattern for
+   * @param caseSensitive whether the regex should be case sensitive
    * @return the compiled Pattern
    */
   public static org.apache.pinot.common.utils.regex.Pattern compile(String regex, boolean caseSensitive) {
