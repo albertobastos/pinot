@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.pinot.common.request.Expression;
 import org.apache.pinot.common.request.ExpressionType;
@@ -111,7 +112,7 @@ public class RequestContextUtils {
    *          always convert the right-hand side expressions into strings. We also update boolean predicates that are
    *          missing an EQUALS filter operator.
    */
-  public static FilterContext getFilter(Expression thriftExpression, Map<String, String> queryOptions) {
+  public static FilterContext getFilter(Expression thriftExpression, @Nullable Map<String, String> queryOptions) {
     ExpressionType type = thriftExpression.getType();
     switch (type) {
       case FUNCTION:
@@ -127,7 +128,7 @@ public class RequestContextUtils {
     }
   }
 
-  public static FilterContext getFilter(Function thriftFunction, Map<String, String> queryOptions) {
+  public static FilterContext getFilter(Function thriftFunction, @Nullable Map<String, String> queryOptions) {
     String functionOperator = thriftFunction.getOperator();
 
     // convert "WHERE startsWith(col, 'str')" to "WHERE startsWith(col, 'str') = true"
