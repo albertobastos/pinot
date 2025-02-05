@@ -25,7 +25,12 @@ public class JavaUtilPattern implements org.apache.pinot.common.utils.regex.Patt
   Pattern _pattern;
 
   public JavaUtilPattern(String regex) {
-    _pattern = Pattern.compile(regex, Pattern.UNICODE_CASE | Pattern.CASE_INSENSITIVE);
+    this(regex, false);
+  }
+
+  public JavaUtilPattern(String regex, boolean caseSensitive) {
+    int flags = Pattern.UNICODE_CASE | (caseSensitive ? 0 : Pattern.CASE_INSENSITIVE);
+    _pattern = Pattern.compile(regex, flags);
   }
 
   @Override

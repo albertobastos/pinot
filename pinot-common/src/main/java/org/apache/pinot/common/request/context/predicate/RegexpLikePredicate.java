@@ -28,11 +28,13 @@ import org.apache.pinot.common.utils.regex.PatternFactory;
  */
 public class RegexpLikePredicate extends BasePredicate {
   private final String _value;
+  private final boolean _caseSensitive;
   private Pattern _pattern = null;
 
-  public RegexpLikePredicate(ExpressionContext lhs, String value) {
+  public RegexpLikePredicate(ExpressionContext lhs, String value, boolean caseSensitive) {
     super(lhs);
     _value = value;
+    _caseSensitive = caseSensitive;
   }
 
   @Override
@@ -46,7 +48,7 @@ public class RegexpLikePredicate extends BasePredicate {
 
   public Pattern getPattern() {
     if (_pattern == null) {
-      _pattern = PatternFactory.compile(_value);
+      _pattern = PatternFactory.compile(_value, _caseSensitive);
     }
     return _pattern;
   }

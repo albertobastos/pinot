@@ -557,10 +557,14 @@ public class CommonConstants {
         public static final String GET_CURSOR = "getCursor";
         // Number of rows that the cursor should contain
         public static final String CURSOR_NUM_ROWS = "cursorNumRows";
+
+        // Set to true for consuming segment like predicates being case sensitive
+        public static final String CASE_SENSITIVE_REGEXP = "caseSensitiveRegexp";
       }
 
       public static class QueryOptionValue {
         public static final int DEFAULT_MAX_STREAMING_PENDING_BLOCKS = 100;
+        public static final String DEFAULT_CASE_SENSITIVE_REGEXP = "false";
       }
     }
 

@@ -25,7 +25,11 @@ public class Re2jPattern implements org.apache.pinot.common.utils.regex.Pattern 
   Pattern _pattern;
 
   public Re2jPattern(String regex) {
-    _pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+    this(regex, false);
+  }
+
+  public Re2jPattern(String regex, boolean caseSensitive) {
+    _pattern = Pattern.compile(regex, caseSensitive ? 0 : Pattern.CASE_INSENSITIVE);
   }
 
   @Override

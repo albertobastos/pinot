@@ -144,7 +144,7 @@ public class DistinctCountThetaSketchAggregationFunction
             "Third to second last argument of DISTINCT_COUNT_THETA_SKETCH aggregation function must be literal "
                 + "(filter expression)");
         FilterContext filter = RequestContextUtils.getFilter(
-            CalciteSqlParser.compileToExpression(filterExpression.getLiteral().getStringValue()));
+            CalciteSqlParser.compileToExpression(filterExpression.getLiteral().getStringValue()), null);
         Preconditions.checkArgument(!filter.isConstant(), "Filter must not be constant: %s", filter);
         // NOTE: Collect expressions before constructing the FilterInfo so that expressionIndexMap always include the
         //       expressions in the filter.

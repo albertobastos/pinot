@@ -98,7 +98,7 @@ public class ImmutableJsonIndexReader implements JsonIndexReader {
   public MutableRoaringBitmap getMatchingDocIds(String filterString) {
     FilterContext filter;
     try {
-      filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString));
+      filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString), null);
       Preconditions.checkArgument(!filter.isConstant());
     } catch (Exception e) {
       throw new BadQueryRequestException("Invalid json match filter: " + filterString);
@@ -405,7 +405,7 @@ public class ImmutableJsonIndexReader implements JsonIndexReader {
     if (filterString != null) {
       FilterContext filter;
       try {
-        filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString));
+        filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString), null);
         Preconditions.checkArgument(!filter.isConstant());
       } catch (Exception e) {
         throw new BadQueryRequestException("Invalid json match filter: " + filterString);

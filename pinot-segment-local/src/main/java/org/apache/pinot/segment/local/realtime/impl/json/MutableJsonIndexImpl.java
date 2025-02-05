@@ -128,7 +128,7 @@ public class MutableJsonIndexImpl implements MutableJsonIndex {
   public MutableRoaringBitmap getMatchingDocIds(String filterString) {
     FilterContext filter;
     try {
-      filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString));
+      filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString), null);
       Preconditions.checkArgument(!filter.isConstant());
     } catch (Exception e) {
       throw new BadQueryRequestException("Invalid json match filter: " + filterString);
@@ -447,7 +447,7 @@ public class MutableJsonIndexImpl implements MutableJsonIndex {
       RoaringBitmap filteredFlattenedDocIds = null;
       FilterContext filter;
       if (filterString != null) {
-        filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString));
+        filter = RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(filterString), null);
         Preconditions.checkArgument(!filter.isConstant(), "Invalid json match filter: " + filterString);
         if (filter.getType() == FilterContext.Type.PREDICATE && isExclusive(filter.getPredicate().getType())) {
           // Handle exclusive predicate separately because the flip can only be applied to the

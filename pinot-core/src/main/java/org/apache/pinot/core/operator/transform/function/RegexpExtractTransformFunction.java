@@ -68,7 +68,7 @@ public class RegexpExtractTransformFunction extends BaseTransformFunction {
     TransformFunction regexpFunction = arguments.get(1);
     Preconditions.checkState(regexpFunction instanceof LiteralTransformFunction,
         "`regexp` must be a literal regex expression.");
-    _regexp = PatternFactory.compile(((LiteralTransformFunction) regexpFunction).getStringLiteral());
+    _regexp = PatternFactory.compile(((LiteralTransformFunction) regexpFunction).getStringLiteral(), true);
 
     if (arguments.size() >= 3) {
       TransformFunction groupFunction = arguments.get(2);

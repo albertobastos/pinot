@@ -97,7 +97,7 @@ public class QueryContextConverterUtils {
     FilterContext filter = null;
     Expression filterExpression = pinotQuery.getFilterExpression();
     if (filterExpression != null) {
-      filter = RequestContextUtils.getFilter(filterExpression);
+      filter = RequestContextUtils.getFilter(filterExpression, pinotQuery.getQueryOptions());
       // Remove the filter if it is always true
       if (filter.isConstantTrue()) {
         filter = null;
@@ -140,7 +140,7 @@ public class QueryContextConverterUtils {
     FilterContext havingFilter = null;
     Expression havingExpression = pinotQuery.getHavingExpression();
     if (havingExpression != null) {
-      havingFilter = RequestContextUtils.getFilter(havingExpression);
+      havingFilter = RequestContextUtils.getFilter(havingExpression, pinotQuery.getQueryOptions());
       // Remove the filter if it is always true
       if (havingFilter.isConstantTrue()) {
         havingFilter = null;

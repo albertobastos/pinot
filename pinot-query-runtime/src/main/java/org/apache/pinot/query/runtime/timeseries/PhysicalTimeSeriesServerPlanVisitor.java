@@ -102,7 +102,7 @@ public class PhysicalTimeSeriesServerPlanVisitor {
   QueryContext compileQueryContext(LeafTimeSeriesPlanNode leafNode, TimeSeriesExecutionContext context) {
     FilterContext filterContext =
         RequestContextUtils.getFilter(CalciteSqlParser.compileToExpression(
-            leafNode.getEffectiveFilter(context.getInitialTimeBuckets())));
+            leafNode.getEffectiveFilter(context.getInitialTimeBuckets())), leafNode.getQueryOptions());
     List<ExpressionContext> groupByExpressions = leafNode.getGroupByExpressions().stream()
         .map(RequestContextUtils::getExpression).collect(Collectors.toList());
     TimeBuckets timeBuckets = context.getInitialTimeBuckets();

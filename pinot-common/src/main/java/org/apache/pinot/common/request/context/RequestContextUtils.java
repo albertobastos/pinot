@@ -22,6 +22,7 @@ import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.pinot.common.request.Expression;
 import org.apache.pinot.common.request.ExpressionType;
@@ -43,6 +44,7 @@ import org.apache.pinot.common.utils.RegexpPatternConverterUtils;
 import org.apache.pinot.common.utils.request.RequestUtils;
 import org.apache.pinot.segment.spi.AggregationFunctionType;
 import org.apache.pinot.spi.exception.BadQueryRequestException;
+import org.apache.pinot.spi.utils.CommonConstants;
 import org.apache.pinot.sql.FilterKind;
 import org.apache.pinot.sql.parsers.CalciteSqlParser;
 
@@ -105,12 +107,12 @@ public class RequestContextUtils {
    *          always convert the right-hand side expressions into strings. We also update boolean predicates that are
    *          missing an EQUALS filter operator.
    */
-  public static FilterContext getFilter(Expression thriftExpression) {
+  public static FilterContext getFilter(Expression thriftExpression, Map<String, String> queryOptions) {
     ExpressionType type = thriftExpression.getType();
     switch (type) {
       case FUNCTION:
         Function thriftFunction = thriftExpression.getFunctionCall();
-        return getFilter(thriftFunction);
+        return getFilter(thriftFunction, queryOptions);
       case IDENTIFIER:
         // Convert "WHERE a" to "WHERE a = true"
         return FilterContext.forPredicate(new EqPredicate(getExpression(thriftExpression), "true"));
@@ -121,7 +123,7 @@ public class RequestContextUtils {
     }
   }
 
-  public static FilterContext getFilter(Function thriftFunction) {
+  public static FilterContext getFilter(Function thriftFunction, Map<String, String> queryOptions) {
     String functionOperator = thriftFunction.getOperator();
 
     // convert "WHERE startsWith(col, 'str')" to "WHERE startsWith(col, 'str') = true"
@@ -137,7 +139,7 @@ public class RequestContextUtils {
       case AND: {
         List<FilterContext> children = new ArrayList<>(numOperands);
         for (Expression operand : operands) {
-          FilterContext filter = getFilter(operand);
+          FilterContext filter = getFilter(operand, queryOptions);
           if (!filter.isConstant()) {
             children.add(filter);
           } else {
@@ -158,7 +160,7 @@ public class RequestContextUtils {
       case OR: {
         List<FilterContext> children = new ArrayList<>(numOperands);
         for (Expression operand : operands) {
-          FilterContext filter = getFilter(operand);
+          FilterContext filter = getFilter(operand, queryOptions);
           if (!filter.isConstant()) {
             children.add(filter);
           } else {
@@ -178,7 +180,7 @@ public class RequestContextUtils {
       }
       case NOT: {
         assert numOperands == 1;
-        FilterContext filter = getFilter(operands.get(0));
+        FilterContext filter = getFilter(operands.get(0), queryOptions);
         if (!filter.isConstant()) {
           return FilterContext.forNot(filter);
         } else {
@@ -230,10 +232,17 @@ public class RequestContextUtils {
             new RangePredicate(getExpression(operands.get(0)), getStringValue(operands.get(1))));
       case REGEXP_LIKE:
         return FilterContext.forPredicate(
-            new RegexpLikePredicate(getExpression(operands.get(0)), getStringValue(operands.get(1))));
+            new RegexpLikePredicate(
+                getExpression(operands.get(0)),
+                getStringValue(operands.get(1)),
+                checkCaseSensitiveLikeOption(queryOptions)
+            ));
       case LIKE:
-        return FilterContext.forPredicate(new RegexpLikePredicate(getExpression(operands.get(0)),
-            RegexpPatternConverterUtils.likeToRegexpLike(getStringValue(operands.get(1)))));
+        return FilterContext.forPredicate(new RegexpLikePredicate(
+            getExpression(operands.get(0)),
+            RegexpPatternConverterUtils.likeToRegexpLike(getStringValue(operands.get(1))),
+            checkCaseSensitiveLikeOption(queryOptions)
+        ));
       case TEXT_CONTAINS:
         return FilterContext.forPredicate(
             new TextContainsPredicate(getExpression(operands.get(0)), getStringValue(operands.get(1))));
@@ -258,6 +267,12 @@ public class RequestContextUtils {
       default:
         throw new IllegalStateException();
     }
+  }
+
+  private static boolean checkCaseSensitiveLikeOption(Map<String, String> queryOptions) {
+    return queryOptions != null && queryOptions.getOrDefault(
+        CommonConstants.Broker.Request.QueryOptionKey.CASE_SENSITIVE_REGEXP,
+        CommonConstants.Broker.Request.QueryOptionValue.DEFAULT_CASE_SENSITIVE_REGEXP).equalsIgnoreCase("true");
   }
 
   public static String getStringValue(Expression thriftExpression) {
@@ -395,10 +410,13 @@ public class RequestContextUtils {
       case RANGE:
         return FilterContext.forPredicate(new RangePredicate(operands.get(0), getStringValue(operands.get(1))));
       case REGEXP_LIKE:
-        return FilterContext.forPredicate(new RegexpLikePredicate(operands.get(0), getStringValue(operands.get(1))));
+        return FilterContext.forPredicate(new RegexpLikePredicate(
+            operands.get(0), getStringValue(operands.get(1)), false));
       case LIKE:
-        return FilterContext.forPredicate(new RegexpLikePredicate(operands.get(0),
-            RegexpPatternConverterUtils.likeToRegexpLike(getStringValue(operands.get(1)))));
+        return FilterContext.forPredicate(new RegexpLikePredicate(
+            operands.get(0),
+            RegexpPatternConverterUtils.likeToRegexpLike(getStringValue(operands.get(1))),
+            false));
       case TEXT_CONTAINS:
         return FilterContext.forPredicate(new TextContainsPredicate(operands.get(0), getStringValue(operands.get(1))));
       case TEXT_MATCH:

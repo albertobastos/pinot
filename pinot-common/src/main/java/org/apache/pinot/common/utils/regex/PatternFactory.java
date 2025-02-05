@@ -38,17 +38,17 @@ public class PatternFactory {
    * @param regex to compile the Pattern for
    * @return the compiled Pattern
    */
-  public static org.apache.pinot.common.utils.regex.Pattern compile(String regex) {
+  public static org.apache.pinot.common.utils.regex.Pattern compile(String regex, boolean caseSensitive) {
     // un-initialized factory will use java.util.regex to avoid requiring initialization in tests
     if (_regexClass == null) {
-      return new JavaUtilPattern(regex);
+      return new JavaUtilPattern(regex, caseSensitive);
     }
     switch (_regexClass) {
       case RE2J:
-        return new Re2jPattern(regex);
+        return new Re2jPattern(regex, caseSensitive);
       case JAVA_UTIL:
       default:
-        return new JavaUtilPattern(regex);
+        return new JavaUtilPattern(regex, caseSensitive);
     }
   }
 }
