@@ -28,6 +28,7 @@ public class MultiStageEngineCustomTenantIntegrationTest extends MultiStageEngin
 
   @Override
   protected void overrideControllerConf(Map<String, Object> properties) {
+    super.overrideControllerConf(properties);
     properties.put(ControllerConf.CLUSTER_TENANT_ISOLATION_ENABLE, false);
   }
 
