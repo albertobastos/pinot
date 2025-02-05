@@ -274,7 +274,7 @@ public class RequestContextUtils {
     }
   }
 
-  private static boolean checkCaseSensitiveLikeOption(Map<String, String> queryOptions) {
+  private static boolean checkCaseSensitiveLikeOption(@Nullable Map<String, String> queryOptions) {
     return queryOptions != null && queryOptions.getOrDefault(
         CommonConstants.Broker.Request.QueryOptionKey.CASE_SENSITIVE_REGEXP,
         CommonConstants.Broker.Request.QueryOptionValue.DEFAULT_CASE_SENSITIVE_REGEXP).equalsIgnoreCase("true");
