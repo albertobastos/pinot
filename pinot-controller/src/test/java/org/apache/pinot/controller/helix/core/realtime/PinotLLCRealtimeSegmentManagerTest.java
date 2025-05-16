@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,6 +45,7 @@ import java.util.stream.IntStream;
 import javax.annotation.Nullable;
 import javax.ws.rs.core.Response;
 import org.apache.commons.io.FileUtils;
+import org.apache.helix.AccessOption;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixManager;
 import org.apache.helix.model.ExternalView;
@@ -53,6 +55,7 @@ import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.pinot.common.assignment.InstancePartitions;
 import org.apache.pinot.common.exception.HttpErrorStatusException;
+import org.apache.pinot.common.metadata.ZKMetadataProvider;
 import org.apache.pinot.common.metadata.segment.SegmentZKMetadata;
 import org.apache.pinot.common.metrics.ControllerMetrics;
 import org.apache.pinot.common.restlet.resources.TableLLCSegmentUploadResponse;
@@ -94,6 +97,7 @@ import org.testng.annotations.Test;
 
 import static org.apache.pinot.controller.ControllerConf.ControllerPeriodicTasksConf.ENABLE_TMP_SEGMENT_ASYNC_DELETION;
 import static org.apache.pinot.controller.ControllerConf.ControllerPeriodicTasksConf.TMP_SEGMENT_RETENTION_IN_SECONDS;
+import static org.apache.pinot.controller.helix.core.realtime.PinotLLCRealtimeSegmentManager.COMMITTING_SEGMENTS;
 import static org.apache.pinot.spi.utils.CommonConstants.Segment.METADATA_URI_FOR_PEER_DOWNLOAD;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -885,6 +889,13 @@ public class PinotLLCRealtimeSegmentManagerTest {
       // Expected
     }
     try {
+      segmentManager.reduceSegmentSizeAndReset(new LLCSegmentName(RAW_TABLE_NAME, 0, 0, CURRENT_TIME_MS),
+          1000);
+      fail();
+    } catch (IllegalStateException e) {
+      // Expected
+    }
+    try {
       segmentManager.ensureAllPartitionsConsuming(segmentManager._tableConfig, segmentManager._streamConfigs, null);
       fail();
     } catch (IllegalStateException e) {
@@ -1383,6 +1394,28 @@ public class PinotLLCRealtimeSegmentManagerTest {
   }
 
   @Test
+  public void testReduceSegmentSizeAndReset() {
+    // Set up a new table with 2 replicas, 5 instances, 4 partitions
+    PinotHelixResourceManager mockHelixResourceManager = mock(PinotHelixResourceManager.class);
+    FakePinotLLCRealtimeSegmentManager segmentManager =
+        new FakePinotLLCRealtimeSegmentManager(mockHelixResourceManager);
+    setUpNewTable(segmentManager, 2, 5, 5);
+    SegmentsValidationAndRetentionConfig segmentsValidationAndRetentionConfig =
+        new SegmentsValidationAndRetentionConfig();
+    segmentsValidationAndRetentionConfig.setRetentionTimeUnit(TimeUnit.DAYS.toString());
+    segmentsValidationAndRetentionConfig.setRetentionTimeValue("3");
+    segmentManager._tableConfig.setValidationConfig(segmentsValidationAndRetentionConfig);
+    String segmentName = new ArrayList<>(segmentManager._segmentZKMetadataMap.keySet()).get(0);
+
+    SegmentZKMetadata segmentZKMetadata =
+        segmentManager.getSegmentZKMetadata(REALTIME_TABLE_NAME, segmentName, null);
+    int prevRowSize = segmentZKMetadata.getSizeThresholdToFlushSegment();
+    segmentManager.reduceSegmentSizeAndReset(new LLCSegmentName(segmentName), 100);
+    Assert.assertEquals(Math.min(100 / 2, prevRowSize / 2),
+        segmentManager.getSegmentZKMetadata(REALTIME_TABLE_NAME, segmentName, null).getSizeThresholdToFlushSegment());
+  }
+
+  @Test
   public void testGetInstanceToConsumingSegments() {
     PinotHelixResourceManager mockHelixResourceManager = mock(PinotHelixResourceManager.class);
     FakePinotLLCRealtimeSegmentManager realtimeSegmentManager =
@@ -1482,6 +1515,172 @@ public class PinotLLCRealtimeSegmentManagerTest {
     assert ImmutableSet.of("s2", "s4", "s5").equals(segmentsYetToBeCommitted);
   }
 
+  @Test
+  public void testGetCommittingSegments() {
+    // mock the behavior for PinotHelixResourceManager
+    PinotHelixResourceManager pinotHelixResourceManager = mock(PinotHelixResourceManager.class);
+    HelixManager helixManager = mock(HelixManager.class);
+    HelixAdmin helixAdmin = mock(HelixAdmin.class);
+    ZkHelixPropertyStore<ZNRecord> zkHelixPropertyStore =
+        (ZkHelixPropertyStore<ZNRecord>) mock(ZkHelixPropertyStore.class);
+    when(pinotHelixResourceManager.getHelixZkManager()).thenReturn(helixManager);
+    when(helixManager.getClusterManagmentTool()).thenReturn(helixAdmin);
+    when(helixManager.getClusterName()).thenReturn(CLUSTER_NAME);
+    when(pinotHelixResourceManager.getPropertyStore()).thenReturn(zkHelixPropertyStore);
+
+    // init fake PinotLLCRealtimeSegmentManager
+    ControllerConf controllerConfig = new ControllerConf();
+    FakePinotLLCRealtimeSegmentManager segmentManager =
+        new FakePinotLLCRealtimeSegmentManager(pinotHelixResourceManager, controllerConfig);
+
+    // Test table name
+    String realtimeTableName = "githubEvents_2_REALTIME";
+
+    // Create test segments
+    List<String> testSegments = List.of(
+        "githubEvents_2__0__0__20250210T1142Z",
+        "githubEvents_2__0__1__20250210T1142Z",
+        "githubEvents_2__0__2__20250210T1142Z",
+        "githubEvents_2__0__3__20250210T1142Z"
+    );
+
+    // mock response of propertyStore
+    String committingSegmentsListPath =
+        ZKMetadataProvider.constructPropertyStorePathForPauselessDebugMetadata(realtimeTableName);
+
+    ZNRecord znRecord = new ZNRecord(realtimeTableName);
+    znRecord.setListField(COMMITTING_SEGMENTS, testSegments);
+
+    when(zkHelixPropertyStore.get(eq(committingSegmentsListPath), any(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(znRecord);
+
+    // mock response for fetching segmentZKMetadata with different scenarios
+    // Segment 0: COMMITTING status
+    SegmentZKMetadata segmentZKMetadata0 = mock(SegmentZKMetadata.class);
+    when(segmentZKMetadata0.getStatus()).thenReturn(Status.COMMITTING);
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, testSegments.get(0)))
+        .thenReturn(segmentZKMetadata0);
+
+    // Segment 1: null metadata (deleted)
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, testSegments.get(1)))
+        .thenReturn(null);
+
+    // Segment 2: DONE status
+    SegmentZKMetadata segmentZKMetadata2 = mock(SegmentZKMetadata.class);
+    when(segmentZKMetadata2.getStatus()).thenReturn(Status.DONE);
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, testSegments.get(2)))
+        .thenReturn(segmentZKMetadata2);
+
+    // Segment 3: COMMITTING status
+    SegmentZKMetadata segmentZKMetadata3 = mock(SegmentZKMetadata.class);
+    when(segmentZKMetadata3.getStatus()).thenReturn(Status.COMMITTING);
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, testSegments.get(3)))
+        .thenReturn(segmentZKMetadata3);
+
+    // Execute test
+    List<String> result = segmentManager.getCommittingSegments(realtimeTableName);
+
+    // Verify results
+    assertEquals(result, List.of(testSegments.get(0), testSegments.get(3)));
+
+    // Test UPLOADED case
+    when(segmentZKMetadata0.getStatus()).thenReturn(Status.UPLOADED);
+    result = segmentManager.getCommittingSegments(realtimeTableName);
+    assertEquals(result, List.of(testSegments.get(3)));
+
+    // Test null case
+    when(zkHelixPropertyStore.get(eq(committingSegmentsListPath), any(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(null);
+    result = segmentManager.getCommittingSegments(realtimeTableName);
+    assertTrue(result.isEmpty());
+
+    // Test empty COMMITTING_SEGMENTS field
+    ZNRecord emptyRecord = new ZNRecord("CommittingSegments");
+    when(zkHelixPropertyStore.get(eq(committingSegmentsListPath), any(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(emptyRecord);
+    result = segmentManager.getCommittingSegments(realtimeTableName);
+    assertTrue(result.isEmpty());
+  }
+
+  @Test
+  public void testSyncCommittingSegments() throws Exception {
+    // Set up mocks for the resource management infrastructure
+    PinotHelixResourceManager pinotHelixResourceManager = mock(PinotHelixResourceManager.class);
+    HelixManager helixManager = mock(HelixManager.class);
+    HelixAdmin helixAdmin = mock(HelixAdmin.class);
+    ZkHelixPropertyStore<ZNRecord> zkHelixPropertyStore =
+        (ZkHelixPropertyStore<ZNRecord>) mock(ZkHelixPropertyStore.class);
+
+    // Configure basic mock behaviors
+    when(pinotHelixResourceManager.getHelixZkManager()).thenReturn(helixManager);
+    when(helixManager.getClusterManagmentTool()).thenReturn(helixAdmin);
+    when(helixManager.getClusterName()).thenReturn(CLUSTER_NAME);
+    when(pinotHelixResourceManager.getPropertyStore()).thenReturn(zkHelixPropertyStore);
+
+    // Initialize the segment manager
+    ControllerConf controllerConfig = new ControllerConf();
+    FakePinotLLCRealtimeSegmentManager segmentManager =
+        new FakePinotLLCRealtimeSegmentManager(pinotHelixResourceManager, controllerConfig);
+
+    String realtimeTableName = "testTable_REALTIME";
+    String committingSegmentsListPath =
+        ZKMetadataProvider.constructPropertyStorePathForPauselessDebugMetadata(realtimeTableName);
+
+
+    // Create test segments with different states
+    String committingSegment1 = "testTable__0__0__20250210T1142Z";
+    String committingSegment2 = "testTable__0__1__20250210T1142Z";
+    String doneSegment = "testTable__0__2__20250210T1142Z";
+
+    // Set up segment metadata mocks
+    SegmentZKMetadata committingMetadata1 = mock(SegmentZKMetadata.class);
+    when(committingMetadata1.getStatus()).thenReturn(Status.COMMITTING);
+
+    SegmentZKMetadata committingMetadata2 = mock(SegmentZKMetadata.class);
+    when(committingMetadata2.getStatus()).thenReturn(Status.COMMITTING);
+
+    SegmentZKMetadata doneMetadata = mock(SegmentZKMetadata.class);
+    when(doneMetadata.getStatus()).thenReturn(Status.DONE);
+
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, committingSegment1)).thenReturn(
+        committingMetadata1);
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, committingSegment2)).thenReturn(
+        committingMetadata2);
+    when(pinotHelixResourceManager.getSegmentZKMetadata(realtimeTableName, doneSegment)).thenReturn(doneMetadata);
+
+    // Test 1: Initial creation with mixed status segments
+    List<String> newSegments = Arrays.asList(committingSegment1, committingSegment2);
+    when(zkHelixPropertyStore.get(eq(committingSegmentsListPath), any(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(null);
+    when(zkHelixPropertyStore.create(eq(committingSegmentsListPath), any(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(true);
+
+    assertTrue(segmentManager.syncCommittingSegments(realtimeTableName, newSegments));
+
+    // Test 2: Syncing with existing segments including DONE and missing metadata
+    ZNRecord existingRecord = new ZNRecord(realtimeTableName);
+    existingRecord.setListField(COMMITTING_SEGMENTS,
+        Arrays.asList(committingSegment2, doneSegment));
+
+    when(zkHelixPropertyStore.get(eq(committingSegmentsListPath), any(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(existingRecord);
+    when(zkHelixPropertyStore.set(eq(committingSegmentsListPath), any(), anyInt(), eq(AccessOption.PERSISTENT)))
+        .thenReturn(true);
+
+    // There should not be any duplicates and the doneSegment should be removed from the list
+    assertTrue(segmentManager.syncCommittingSegments(realtimeTableName,
+        Arrays.asList(committingSegment1, committingSegment2)));
+    assertEquals(new HashSet<>(existingRecord.getListField(COMMITTING_SEGMENTS)),
+        new HashSet<>(List.of(committingSegment1, committingSegment2)));
+
+
+    // Test 3: Error handling during ZooKeeper operations
+    when(zkHelixPropertyStore.set(eq(committingSegmentsListPath), any(), anyInt(), eq(AccessOption.PERSISTENT)))
+        .thenThrow(new RuntimeException("ZooKeeper operation failed"));
+    assertFalse(segmentManager.syncCommittingSegments(realtimeTableName, newSegments));
+  }
+
+
   //////////////////////////////////////////////////////////////////////////////////
   // Fake classes
   /////////////////////////////////////////////////////////////////////////////////
@@ -1523,8 +1722,7 @@ public class PinotLLCRealtimeSegmentManagerTest {
       _tableConfig =
           new TableConfigBuilder(TableType.REALTIME).setTableName(RAW_TABLE_NAME).setNumReplicas(_numReplicas)
               .setStreamConfigs(streamConfigs).build();
-      _streamConfigs = IngestionConfigUtils.getStreamConfigMaps(_tableConfig).stream().map(
-          streamConfig -> new StreamConfig(_tableConfig.getTableName(), streamConfig)).collect(Collectors.toList());
+      _streamConfigs = IngestionConfigUtils.getStreamConfigs(_tableConfig);
     }
 
     void makeConsumingInstancePartitions() {
@@ -1632,6 +1830,13 @@ public class PinotLLCRealtimeSegmentManagerTest {
         return IntStream.range(0, _numPartitions).mapToObj(i -> new PartitionGroupMetadata(i, PARTITION_OFFSET))
             .collect(Collectors.toList());
       }
+    }
+
+    @Override
+    List<PartitionGroupMetadata> getNewPartitionGroupMetadataList(List<StreamConfig> streamConfigs,
+        List<PartitionGroupConsumptionStatus> currentPartitionGroupConsumptionStatusList,
+        boolean forceGetOffsetFromStream) {
+      return getNewPartitionGroupMetadataList(streamConfigs, currentPartitionGroupConsumptionStatusList);
     }
 
     @Override

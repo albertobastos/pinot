@@ -18,14 +18,13 @@
  */
 package org.apache.pinot.spi.utils;
 
-import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.io.FileUtils;
-import org.apache.pinot.spi.config.instance.InstanceType;
+import org.apache.pinot.spi.query.QueryThreadContext;
 
 
 public class CommonConstants {
@@ -65,6 +64,7 @@ public class CommonConstants {
   public static final String DATABASE = "database";
   public static final String DEFAULT_DATABASE = "default";
   public static final String CONFIG_OF_PINOT_INSECURE_MODE = "pinot.insecure.mode";
+  @Deprecated
   public static final String DEFAULT_PINOT_INSECURE_MODE = "false";
 
   public static final String CONFIG_OF_EXECUTORS_FIXED_NUM_THREADS = "pinot.executors.fixed.default.numThreads";
@@ -72,11 +72,17 @@ public class CommonConstants {
 
   public static final String CONFIG_OF_PINOT_TAR_COMPRESSION_CODEC_NAME = "pinot.tar.compression.codec.name";
 
+  public static final String JFR = "pinot.jfr";
+
   /**
    * The state of the consumer for a given segment
    */
   public enum ConsumerState {
     CONSUMING, NOT_CONSUMING // In error state
+  }
+
+  public enum TaskTriggers {
+    CRON_TRIGGER, MANUAL_TRIGGER, ADHOC_TRIGGER, UNKNOWN
   }
 
   public static class Table {
@@ -201,6 +207,7 @@ public class CommonConstants {
       public static final String MULTI_STAGE_QUERY_ENGINE_MAILBOX_PORT_KEY = "queryMailboxPort";
 
       public static final String SYSTEM_RESOURCE_INFO_KEY = "SYSTEM_RESOURCE_INFO";
+      public static final String PINOT_VERSION_KEY = "pinotVersion";
     }
 
     public static final String SET_INSTANCE_ID_TO_HOSTNAME_KEY = "pinot.set.instance.id.to.hostname";
@@ -245,16 +252,40 @@ public class CommonConstants {
     public static final String CONFIG_OF_MULTI_STAGE_ENGINE_MAX_SERVER_QUERY_THREADS =
         "pinot.beta.multistage.engine.max.server.query.threads";
     public static final String DEFAULT_MULTI_STAGE_ENGINE_MAX_SERVER_QUERY_THREADS = "-1";
+    public static final String CONFIG_OF_MULTI_STAGE_ENGINE_MAX_SERVER_QUERY_HARDLIMIT_FACTOR =
+        "pinot.beta.multistage.engine.max.server.query.threads.hardlimit.factor";
+    public static final String DEFAULT_MULTI_STAGE_ENGINE_MAX_SERVER_QUERY_HARDLIMIT_FACTOR = "4";
 
     // Preprocess throttle configs
     public static final String CONFIG_OF_MAX_SEGMENT_PREPROCESS_PARALLELISM =
         "pinot.server.max.segment.preprocess.parallelism";
-    public static final String DEFAULT_MAX_SEGMENT_PREPROCESS_PARALLELISM = String.valueOf(100);
+    // Setting to Integer.MAX_VALUE to effectively disable throttling by default
+    public static final String DEFAULT_MAX_SEGMENT_PREPROCESS_PARALLELISM = String.valueOf(Integer.MAX_VALUE);
     // Before serving queries is enabled, we should use a higher preprocess parallelism to process segments faster
     public static final String CONFIG_OF_MAX_SEGMENT_PREPROCESS_PARALLELISM_BEFORE_SERVING_QUERIES =
         "pinot.server.max.segment.preprocess.parallelism.before.serving.queries";
-    // Use the below default before enabling queries on the server
-    public static final String DEFAULT_MAX_SEGMENT_PREPROCESS_PARALLELISM_BEFORE_SERVING_QUERIES = String.valueOf(100);
+    // Setting the before serving queries to Integer.MAX_VALUE to effectively disable throttling by default
+    public static final String DEFAULT_MAX_SEGMENT_PREPROCESS_PARALLELISM_BEFORE_SERVING_QUERIES =
+        String.valueOf(Integer.MAX_VALUE);
+    // Preprocess throttle config specifically for StarTree index rebuild
+    public static final String CONFIG_OF_MAX_SEGMENT_STARTREE_PREPROCESS_PARALLELISM =
+        "pinot.server.max.segment.startree.preprocess.parallelism";
+    // Setting to Integer.MAX_VALUE to effectively disable throttling by default
+    public static final String DEFAULT_MAX_SEGMENT_STARTREE_PREPROCESS_PARALLELISM = String.valueOf(Integer.MAX_VALUE);
+    public static final String CONFIG_OF_MAX_SEGMENT_STARTREE_PREPROCESS_PARALLELISM_BEFORE_SERVING_QUERIES =
+        "pinot.server.max.segment.startree.preprocess.parallelism.before.serving.queries";
+    // Setting the before serving queries to Integer.MAX_VALUE to effectively disable throttling by default
+    public static final String DEFAULT_MAX_SEGMENT_STARTREE_PREPROCESS_PARALLELISM_BEFORE_SERVING_QUERIES =
+        String.valueOf(Integer.MAX_VALUE);
+    public static final String CONFIG_OF_MAX_SEGMENT_DOWNLOAD_PARALLELISM =
+        "pinot.server.max.segment.download.parallelism";
+    // Setting to Integer.MAX_VALUE to effectively disable throttling by default
+    public static final String DEFAULT_MAX_SEGMENT_DOWNLOAD_PARALLELISM = String.valueOf(Integer.MAX_VALUE);
+    public static final String CONFIG_OF_MAX_SEGMENT_DOWNLOAD_PARALLELISM_BEFORE_SERVING_QUERIES =
+        "pinot.server.max.segment.download.parallelism.before.serving.queries";
+    // Setting the before serving queries to Integer.MAX_VALUE to effectively disable throttling by default
+    public static final String DEFAULT_MAX_SEGMENT_DOWNLOAD_PARALLELISM_BEFORE_SERVING_QUERIES =
+        String.valueOf(Integer.MAX_VALUE);
   }
 
   public static class Broker {
@@ -274,8 +305,7 @@ public class CommonConstants {
 
     public static final String CONFIG_OF_BROKER_QUERY_REWRITER_CLASS_NAMES = "pinot.broker.query.rewriter.class.names";
     public static final String CONFIG_OF_BROKER_QUERY_RESPONSE_LIMIT = "pinot.broker.query.response.limit";
-    public static final String CONFIG_OF_BROKER_DEFAULT_QUERY_LIMIT =
-        "pinot.broker.default.query.limit";
+    public static final String CONFIG_OF_BROKER_DEFAULT_QUERY_LIMIT = "pinot.broker.default.query.limit";
 
     public static final int DEFAULT_BROKER_QUERY_RESPONSE_LIMIT = Integer.MAX_VALUE;
 
@@ -332,7 +362,7 @@ public class CommonConstants {
         "pinot.broker.jersey.threadpool.executor.queue.size";
     public static final int DEFAULT_JERSEY_THREADPOOL_EXECUTOR_QUEUE_SIZE = Integer.MAX_VALUE;
 
-    // used for SQL GROUP BY during broker reduce
+    // Configs for broker reduce on group-by queries (only apply to SSE)
     public static final String CONFIG_OF_BROKER_GROUPBY_TRIM_THRESHOLD = "pinot.broker.groupby.trim.threshold";
     public static final int DEFAULT_BROKER_GROUPBY_TRIM_THRESHOLD = 1_000_000;
     public static final String CONFIG_OF_BROKER_MIN_GROUP_TRIM_SIZE = "pinot.broker.min.group.trim.size";
@@ -340,6 +370,13 @@ public class CommonConstants {
     public static final String CONFIG_OF_BROKER_MIN_INITIAL_INDEXED_TABLE_CAPACITY =
         "pinot.broker.min.init.indexed.table.capacity";
     public static final int DEFAULT_BROKER_MIN_INITIAL_INDEXED_TABLE_CAPACITY = 128;
+
+    // Config for enabling group trim for MSE group-by queries. When group trim is enabled, there are 3 levels of
+    // trimming: segment level (shared with SSE, disabled by default), leaf stage level (shared with SSE, enabled by
+    // default), intermediate stage level (enabled by default). The group trim behavior for each level is configured on
+    // the server side.
+    public static final String CONFIG_OF_MSE_ENABLE_GROUP_TRIM = "pinot.broker.mse.enable.group.trim";
+    public static final boolean DEFAULT_MSE_ENABLE_GROUP_TRIM = false;
 
     // Configure the request handler type used by broker to handler inbound query request.
     // NOTE: the request handler type refers to the communication between Broker and Server.
@@ -419,6 +456,9 @@ public class CommonConstants {
     public static final String CONFIG_OF_BROKER_ENABLE_MULTISTAGE_MIGRATION_METRIC =
         "pinot.broker.enable.multistage.migration.metric";
     public static final boolean DEFAULT_ENABLE_MULTISTAGE_MIGRATION_METRIC = false;
+    public static final String CONFIG_OF_BROKER_ENABLE_DYNAMIC_FILTERING_SEMI_JOIN =
+            "pinot.broker.enable.dynamic.filtering.semijoin";
+    public static final boolean DEFAULT_ENABLE_DYNAMIC_FILTERING_SEMI_JOIN = true;
 
     public static class Request {
       public static final String SQL = "sql";
@@ -438,19 +478,24 @@ public class CommonConstants {
         public static final String USE_SCAN_REORDER_OPTIMIZATION = "useScanReorderOpt";
         public static final String MAX_EXECUTION_THREADS = "maxExecutionThreads";
 
-        /** Number of groups AggregateOperator should limit result to after sorting.
-         *  Trimming happens only when (sub)query contains order by and limit clause. */
-        public static final String GROUP_TRIM_SIZE = "groupTrimSize";
+        // For group-by queries with order-by clause, the tail groups are trimmed off to reduce the memory footprint. To
+        // ensure the accuracy of the result, {@code max(limit * 5, minTrimSize)} groups are retained. When
+        // {@code minTrimSize} is non-positive, trim is disabled.
+        //
+        // Caution:
+        // Setting trim size to non-positive value (disable trim) or large value gives more accurate result, but can
+        // potentially cause higher memory pressure.
+        //
+        // Trim can be applied in the following stages:
+        // - Segment level: after getting the segment level results, before merging them into server level results.
+        // - Server level: while merging the segment level results into server level results.
+        // - Broker level: while merging the server level results into broker level results. (SSE only)
+        // - MSE intermediate stage (MSE only)
 
-        /** Number of groups GroupByOperator should limit result to after sorting.
-         * Trimming happens only when (sub)query contains order by clause. */
         public static final String MIN_SEGMENT_GROUP_TRIM_SIZE = "minSegmentGroupTrimSize";
-
-        /** Max number of groups GroupByCombineOperator (running at server) should return. */
         public static final String MIN_SERVER_GROUP_TRIM_SIZE = "minServerGroupTrimSize";
-
-        /** Max number of groups GroupByDataTableReducer (running at broker) should return. */
         public static final String MIN_BROKER_GROUP_TRIM_SIZE = "minBrokerGroupTrimSize";
+        public static final String MSE_MIN_GROUP_TRIM_SIZE = "mseMinGroupTrimSize";
 
         /** Number of threads used in the final reduce.
          * This is useful for expensive aggregation functions. E.g. Funnel queries are considered as expensive
@@ -458,8 +503,7 @@ public class CommonConstants {
         public static final String NUM_THREADS_EXTRACT_FINAL_RESULT = "numThreadsExtractFinalResult";
 
         /** Number of threads used in the final reduce at broker level. */
-        public static final String CHUNK_SIZE_EXTRACT_FINAL_RESULT =
-            "chunkSizeExtractFinalResult";
+        public static final String CHUNK_SIZE_EXTRACT_FINAL_RESULT = "chunkSizeExtractFinalResult";
 
         public static final String NUM_REPLICA_GROUPS_TO_QUERY = "numReplicaGroupsToQuery";
         public static final String USE_FIXED_REPLICA = "useFixedReplica";
@@ -469,6 +513,7 @@ public class CommonConstants {
         public static final String ENABLE_NULL_HANDLING = "enableNullHandling";
         public static final String APPLICATION_NAME = "applicationName";
         public static final String USE_SPOOLS = "useSpools";
+        public static final String USE_PHYSICAL_OPTIMIZER = "usePhysicalOptimizer";
         /**
          * If set, changes the explain behavior in multi-stage engine.
          *
@@ -496,11 +541,16 @@ public class CommonConstants {
 
         public static final String MULTI_STAGE_LEAF_LIMIT = "multiStageLeafLimit";
 
+        // TODO: Apply this to SSE as well
         /** Throw an exception on reaching num_groups_limit instead of just setting a flag. */
         public static final String ERROR_ON_NUM_GROUPS_LIMIT = "errorOnNumGroupsLimit";
+
         public static final String NUM_GROUPS_LIMIT = "numGroupsLimit";
+        // Not actually accepted as Query Option but faked as one during MSE
+        public static final String NUM_GROUPS_WARNING_LIMIT = "numGroupsWarningLimit";
         public static final String MAX_INITIAL_RESULT_HOLDER_CAPACITY = "maxInitialResultHolderCapacity";
         public static final String MIN_INITIAL_INDEXED_TABLE_CAPACITY = "minInitialIndexedTableCapacity";
+        public static final String MSE_MAX_INITIAL_RESULT_HOLDER_CAPACITY = "mseMaxInitialResultHolderCapacity";
         public static final String GROUP_TRIM_THRESHOLD = "groupTrimThreshold";
         public static final String STAGE_PARALLELISM = "stageParallelism";
 
@@ -557,6 +607,20 @@ public class CommonConstants {
         public static final String GET_CURSOR = "getCursor";
         // Number of rows that the cursor should contain
         public static final String CURSOR_NUM_ROWS = "cursorNumRows";
+
+        // Custom Query ID provided by the client
+        public static final String CLIENT_QUERY_ID = "clientQueryId";
+
+        // Use MSE compiler when trying to fill a response with no schema metadata
+        // (overrides the "pinot.broker.use.mse.to.fill.empty.response.schema" broker conf)
+        public static final String USE_MSE_TO_FILL_EMPTY_RESPONSE_SCHEMA = "useMSEToFillEmptyResponseSchema";
+
+        // Used by the MSE Engine when auto-inferring data partitioning. Realtime streams can often incorrectly assign
+        // records to stream partitions, which can make a segment have multiple partitions. The scale of this is
+        // usually low, and this query option allows the MSE Optimizer to infer the partition of a segment based on its
+        // name, when that segment has multiple partitions in its columnPartitionMap.
+        public static final String INFER_INVALID_SEGMENT_PARTITION = "inferInvalidSegmentPartition";
+        public static final String USE_LITE_MODE = "useLiteMode";
       }
 
       public static class QueryOptionValue {
@@ -587,7 +651,7 @@ public class CommonConstants {
       public static final String CONFIG_OF_RETRY_DELAY_FACTOR = "pinot.broker.failure.detector.retry.delay.factor";
       public static final double DEFAULT_RETRY_DELAY_FACTOR = 2.0;
       public static final String CONFIG_OF_MAX_RETRIES = "pinot.broker.failure.detector.max.retries";
-      public static final int DEFAULT_MAX_RETIRES = 10;
+      public static final int DEFAULT_MAX_RETRIES = 10;
     }
 
     // Configs related to AdaptiveServerSelection.
@@ -676,7 +740,25 @@ public class CommonConstants {
       public static final int DEFAULT_STATS_MANAGER_THREADPOOL_SIZE = 2;
     }
 
+    public static class Grpc {
+      public static final String KEY_OF_GRPC_PORT = "pinot.broker.grpc.port";
+      public static final String KEY_OF_GRPC_TLS_ENABLED = "pinot.broker.grpc.tls.enabled";
+      public static final String KEY_OF_GRPC_TLS_PORT = "pinot.broker.grpc.tls.port";
+      public static final String KEY_OF_GRPC_TLS_PREFIX = "pinot.broker.grpctls";
+
+      public static final String BLOCK_ROW_SIZE = "blockRowSize";
+      public static final int DEFAULT_BLOCK_ROW_SIZE = 10_000;
+      public static final String COMPRESSION = "compression";
+      public static final String DEFAULT_COMPRESSION = "ZSTD";
+      public static final String ENCODING = "encoding";
+      public static final String DEFAULT_ENCODING = "JSON";
+    }
+
     public static final String PREFIX_OF_CONFIG_OF_PINOT_FS_FACTORY = "pinot.broker.storage.factory";
+
+    public static final String USE_MSE_TO_FILL_EMPTY_RESPONSE_SCHEMA =
+        "pinot.broker.use.mse.to.fill.empty.response.schema";
+    public static final boolean DEFAULT_USE_MSE_TO_FILL_EMPTY_RESPONSE_SCHEMA = false;
   }
 
   public static class Server {
@@ -744,24 +826,96 @@ public class CommonConstants {
         "pinot.server.query.log.droppedReportMaxRatePerSecond";
     public static final double DEFAULT_QUERY_LOG_DROPPED_REPORT_MAX_RATE = 1;
 
-    // Query executor related configs
-    public static final String CONFIG_OF_QUERY_EXECUTOR_CLASS = "pinot.server.query.executor.class";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_PRUNER_CLASS = "pinot.server.query.executor.pruner.class";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_PLAN_MAKER_CLASS =
-        "pinot.server.query.executor.plan.maker.class";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_TIMEOUT = "pinot.server.query.executor.timeout";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_NUM_GROUPS_LIMIT =
-        "pinot.server.query.executor.num.groups.limit";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_GROUP_TRIM_SIZE =
-        "pinot.server.query.executor.group.trim.size";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_MAX_INITIAL_RESULT_HOLDER_CAPACITY =
-        "pinot.server.query.executor.max.init.group.holder.capacity";
-    public static final String CONFIG_OF_QUERY_EXECUTOR_MIN_INITIAL_INDEXED_TABLE_CAPACITY =
-        "pinot.server.query.executor.min.init.indexed.table.capacity";
+    /* Start of query executor related configs */
 
-    public static final String CONFIG_OF_QUERY_EXECUTOR_OPCHAIN_EXECUTOR =
-        "pinot.server.query.executor.multistage.executor";
-    public static final String DEFAULT_QUERY_EXECUTOR_OPCHAIN_EXECUTOR = "cached";
+    public static final String CLASS = "class";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_CLASS = QUERY_EXECUTOR_CONFIG_PREFIX + "." + CLASS;
+    public static final String DEFAULT_QUERY_EXECUTOR_CLASS =
+        "org.apache.pinot.core.query.executor.ServerQueryExecutorV1Impl";
+    public static final String PRUNER = "pruner";
+    public static final String QUERY_EXECUTOR_PRUNER_CONFIG_PREFIX = QUERY_EXECUTOR_CONFIG_PREFIX + "." + PRUNER;
+    public static final String CONFIG_OF_QUERY_EXECUTOR_PRUNER_CLASS =
+        QUERY_EXECUTOR_PRUNER_CONFIG_PREFIX + "." + CLASS;
+    // The order of the pruners matters. Pruning with segment metadata ahead of those using segment data like bloom
+    // filters to reduce the required data access.
+    public static final List<String> DEFAULT_QUERY_EXECUTOR_PRUNER_CLASS =
+        List.of("ColumnValueSegmentPruner", "BloomFilterSegmentPruner", "SelectionQuerySegmentPruner");
+    public static final String PLAN_MAKER_CLASS = "plan.maker.class";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_PLAN_MAKER_CLASS =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + PLAN_MAKER_CLASS;
+    public static final String DEFAULT_QUERY_EXECUTOR_PLAN_MAKER_CLASS =
+        "org.apache.pinot.core.plan.maker.InstancePlanMakerImplV2";
+    public static final String TIMEOUT = "timeout";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_TIMEOUT = QUERY_EXECUTOR_CONFIG_PREFIX + "." + TIMEOUT;
+    public static final long DEFAULT_QUERY_EXECUTOR_TIMEOUT_MS = 15_000L;
+    public static final String MAX_EXECUTION_THREADS = "max.execution.threads";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_MAX_EXECUTION_THREADS =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + MAX_EXECUTION_THREADS;
+    public static final int DEFAULT_QUERY_EXECUTOR_MAX_EXECUTION_THREADS = -1;  // Use number of CPU cores
+
+    // Group-by query related configs
+    public static final String NUM_GROUPS_LIMIT = "num.groups.limit";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_NUM_GROUPS_LIMIT =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + NUM_GROUPS_LIMIT;
+    public static final int DEFAULT_QUERY_EXECUTOR_NUM_GROUPS_LIMIT = 100_000;
+    public static final String NUM_GROUPS_WARN_LIMIT = "num.groups.warn.limit";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_NUM_GROUPS_WARN_LIMIT =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + NUM_GROUPS_WARN_LIMIT;
+    public static final int DEFAULT_QUERY_EXECUTOR_NUM_GROUPS_WARN_LIMIT = 150_000;
+    public static final String MAX_INITIAL_RESULT_HOLDER_CAPACITY = "max.init.group.holder.capacity";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_MAX_INITIAL_RESULT_HOLDER_CAPACITY =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + MAX_INITIAL_RESULT_HOLDER_CAPACITY;
+    public static final int DEFAULT_QUERY_EXECUTOR_MAX_INITIAL_RESULT_HOLDER_CAPACITY = 10_000;
+    public static final String MIN_INITIAL_INDEXED_TABLE_CAPACITY = "min.init.indexed.table.capacity";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_MIN_INITIAL_INDEXED_TABLE_CAPACITY =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + MIN_INITIAL_INDEXED_TABLE_CAPACITY;
+    public static final int DEFAULT_QUERY_EXECUTOR_MIN_INITIAL_INDEXED_TABLE_CAPACITY = 128;
+    public static final String MSE = "mse";
+    public static final String MSE_CONFIG_PREFIX = QUERY_EXECUTOR_CONFIG_PREFIX + "." + MSE;
+    public static final String CONFIG_OF_MSE_MAX_INITIAL_RESULT_HOLDER_CAPACITY =
+        MSE_CONFIG_PREFIX + "." + MAX_INITIAL_RESULT_HOLDER_CAPACITY;
+
+    // For group-by queries with order-by clause, the tail groups are trimmed off to reduce the memory footprint. To
+    // ensure the accuracy of the result, {@code max(limit * 5, minTrimSize)} groups are retained. When
+    // {@code minTrimSize} is non-positive, trim is disabled.
+    //
+    // Caution:
+    // Setting trim size to non-positive value (disable trim) or large value gives more accurate result, but can
+    // potentially cause higher memory pressure.
+    //
+    // Trim can be applied in the following stages:
+    // - Segment level: after getting the segment level results, before merging them into server level results.
+    // - Server level: while merging the segment level results into server level results.
+    // - Broker level: while merging the server level results into broker level results. (SSE only)
+    // - MSE intermediate stage (MSE only)
+    public static final String MIN_SEGMENT_GROUP_TRIM_SIZE = "min.segment.group.trim.size";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_MIN_SEGMENT_GROUP_TRIM_SIZE =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + MIN_SEGMENT_GROUP_TRIM_SIZE;
+    public static final int DEFAULT_QUERY_EXECUTOR_MIN_SEGMENT_GROUP_TRIM_SIZE = -1;
+    public static final String MIN_SERVER_GROUP_TRIM_SIZE = "min.server.group.trim.size";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_MIN_SERVER_GROUP_TRIM_SIZE =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + MIN_SERVER_GROUP_TRIM_SIZE;
+    // Match the value of GroupByUtils.DEFAULT_MIN_NUM_GROUPS
+    public static final int DEFAULT_QUERY_EXECUTOR_MIN_SERVER_GROUP_TRIM_SIZE = 5000;
+    public static final String GROUPBY_TRIM_THRESHOLD = "groupby.trim.threshold";
+    public static final String CONFIG_OF_QUERY_EXECUTOR_GROUPBY_TRIM_THRESHOLD =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + GROUPBY_TRIM_THRESHOLD;
+    public static final int DEFAULT_QUERY_EXECUTOR_GROUPBY_TRIM_THRESHOLD = 1_000_000;
+    public static final String CONFIG_OF_MSE_MIN_GROUP_TRIM_SIZE = MSE_CONFIG_PREFIX + ".min.group.trim.size";
+    // Match the value of GroupByUtils.DEFAULT_MIN_NUM_GROUPS
+    public static final int DEFAULT_MSE_MIN_GROUP_TRIM_SIZE = 5000;
+
+    // TODO: Merge this with "mse"
+    public static final String MULTISTAGE_EXECUTOR = "multistage.executor";
+    public static final String MULTISTAGE_EXECUTOR_CONFIG_PREFIX =
+        QUERY_EXECUTOR_CONFIG_PREFIX + "." + MULTISTAGE_EXECUTOR;
+    public static final String DEFAULT_MULTISTAGE_EXECUTOR_TYPE = "cached";
+    @Deprecated
+    public static final String CONFIG_OF_QUERY_EXECUTOR_OPCHAIN_EXECUTOR = MULTISTAGE_EXECUTOR_CONFIG_PREFIX;
+    @Deprecated
+    public static final String DEFAULT_QUERY_EXECUTOR_OPCHAIN_EXECUTOR = DEFAULT_MULTISTAGE_EXECUTOR_TYPE;
+
+    /* End of query executor related configs */
 
     public static final String CONFIG_OF_TRANSFORM_FUNCTIONS = "pinot.server.transforms";
     public static final String CONFIG_OF_SERVER_QUERY_REWRITER_CLASS_NAMES = "pinot.server.query.rewriter.class.names";
@@ -838,15 +992,6 @@ public class CommonConstants {
     public static final double DEFAULT_SERVER_CONSUMPTION_RATE_LIMIT = 0.0;
 
     public static final String CONFIG_OF_MMAP_DEFAULT_ADVICE = "pinot.server.mmap.advice.default";
-    public static final String DEFAULT_QUERY_EXECUTOR_CLASS =
-        "org.apache.pinot.core.query.executor.ServerQueryExecutorV1Impl";
-    // The order of the pruners matters. Pruning with segment metadata ahead of those using segment data like bloom
-    // filters to reduce the required data access.
-    public static final List<String> DEFAULT_QUERY_EXECUTOR_PRUNER_CLASS =
-        ImmutableList.of("ColumnValueSegmentPruner", "BloomFilterSegmentPruner", "SelectionQuerySegmentPruner");
-    public static final String DEFAULT_QUERY_EXECUTOR_PLAN_MAKER_CLASS =
-        "org.apache.pinot.core.plan.maker.InstancePlanMakerImplV2";
-    public static final long DEFAULT_QUERY_EXECUTOR_TIMEOUT_MS = 15_000L;
     public static final String PREFIX_OF_CONFIG_OF_SEGMENT_FETCHER_FACTORY = "pinot.server.segment.fetcher";
 
     // Configs for server starter startup/shutdown checks
@@ -902,6 +1047,10 @@ public class CommonConstants {
     public static final int DEFAULT_LUCENE_MAX_REFRESH_THREADS = 1;
     public static final String LUCENE_MIN_REFRESH_INTERVAL_MS = "pinot.server.lucene.min.refresh.interval.ms";
     public static final int DEFAULT_LUCENE_MIN_REFRESH_INTERVAL_MS = 10;
+
+    public static final String CONFIG_OF_MESSAGES_COUNT_REFRESH_INTERVAL_SECONDS =
+        "pinot.server.messagesCount.refreshIntervalSeconds";
+    public static final int DEFAULT_MESSAGES_COUNT_REFRESH_INTERVAL_SECONDS = 30;
 
     public static class SegmentCompletionProtocol {
       public static final String PREFIX_OF_CONFIG_OF_SEGMENT_UPLOADER = "pinot.server.segment.uploader";
@@ -960,6 +1109,32 @@ public class CommonConstants {
     public static final String PREFIX_OF_CONFIG_OF_ENVIRONMENT_PROVIDER_FACTORY =
         "pinot.server.environmentProvider.factory";
     public static final String ENVIRONMENT_PROVIDER_CLASS_NAME = "pinot.server.environmentProvider.className";
+
+    /// All the keys should be prefixed with {@link #INSTANCE_DATA_MANAGER_CONFIG_PREFIX}
+    public static class Upsert {
+      public static final String CONFIG_PREFIX = "upsert";
+      public static final String DEFAULT_METADATA_MANAGER_CLASS = "default.metadata.manager.class";
+      public static final String DEFAULT_ENABLE_SNAPSHOT = "default.enable.snapshot";
+      public static final String DEFAULT_ENABLE_PRELOAD = "default.enable.preload";
+
+      /// @deprecated use {@link org.apache.pinot.spi.config.table.ingestion.ParallelSegmentConsumptionPolicy)} instead.
+      @Deprecated
+      public static final String DEFAULT_ALLOW_PARTIAL_UPSERT_CONSUMPTION_DURING_COMMIT =
+          "default.allow.partial.upsert.consumption.during.commit";
+    }
+
+    /// All the keys should be prefixed with {@link #INSTANCE_DATA_MANAGER_CONFIG_PREFIX}
+    public static class Dedup {
+      public static final String CONFIG_PREFIX = "dedup";
+      public static final String DEFAULT_METADATA_MANAGER_CLASS = "default.metadata.manager.class";
+      public static final String DEFAULT_ENABLE_PRELOAD = "default.enable.preload";
+      public static final String DEFAULT_IGNORE_NON_DEFAULT_TIERS = "default.ignore.non.default.tiers";
+
+      /// @deprecated use {@link org.apache.pinot.spi.config.table.ingestion.ParallelSegmentConsumptionPolicy)} instead.
+      @Deprecated
+      public static final String DEFAULT_ALLOW_DEDUP_CONSUMPTION_DURING_COMMIT =
+          "default.allow.dedup.consumption.during.commit";
+    }
   }
 
   public static class Controller {
@@ -982,11 +1157,16 @@ public class CommonConstants {
     public static final String CONFIG_OF_INSTANCE_ID = "pinot.controller.instance.id";
     public static final String CONFIG_OF_CONTROLLER_QUERY_REWRITER_CLASS_NAMES =
         "pinot.controller.query.rewriter.class.names";
+
+    // Task Manager configuration
+    public static final String CONFIG_OF_TASK_MANAGER_CLASS = "pinot.controller.task.manager.class";
+    public static final String DEFAULT_TASK_MANAGER_CLASS =
+        "org.apache.pinot.controller.helix.core.minion.PinotTaskManager";
+
     //Set to true to load all services tagged and compiled with hk2-metadata-generator. Default to False
     public static final String CONTROLLER_SERVICE_AUTO_DISCOVERY = "pinot.controller.service.auto.discovery";
     public static final String CONFIG_OF_LOGGER_ROOT_DIR = "pinot.controller.logger.root.dir";
-    public static final String PREFIX_OF_PINOT_CONTROLLER_SEGMENT_COMPLETION =
-        "pinot.controller.segment.completion";
+    public static final String PREFIX_OF_PINOT_CONTROLLER_SEGMENT_COMPLETION = "pinot.controller.segment.completion";
   }
 
   public static class Minion {
@@ -1057,6 +1237,7 @@ public class CommonConstants {
     // Force commit job ZK props
     public static final String CONSUMING_SEGMENTS_FORCE_COMMITTED_LIST = "segmentsForceCommitted";
     public static final String CONSUMING_SEGMENTS_YET_TO_BE_COMMITTED_LIST = "segmentsYetToBeCommitted";
+    public static final String NUM_CONSUMING_SEGMENTS_YET_TO_BE_COMMITTED = "numberOfSegmentsYetToBeCommitted";
   }
 
   // prefix for scheduler related features, e.g. query accountant
@@ -1114,9 +1295,6 @@ public class CommonConstants {
     public static final String CONFIG_OF_GC_BACKOFF_COUNT = "accounting.gc.backoff.count";
     public static final int DEFAULT_GC_BACKOFF_COUNT = 5;
 
-    public static final String CONFIG_OF_INSTANCE_TYPE = "accounting.instance.type";
-    public static final InstanceType DEFAULT_CONFIG_OF_INSTANCE_TYPE = InstanceType.SERVER;
-
     public static final String CONFIG_OF_GC_WAIT_TIME_MS = "accounting.gc.wait.time.ms";
     public static final int DEFAULT_CONFIG_OF_GC_WAIT_TIME_MS = 0;
 
@@ -1145,9 +1323,13 @@ public class CommonConstants {
 
         /**
          * Returns {@code true} if the segment is completed (DONE/UPLOADED), {@code false} otherwise.
+         *
+         * The segment is
+         * 1. still Consuming if the status is IN_PROGRESS
+         * 2. just done consuming but not yet committed if the status is COMMITTING (for pauseless tables)
          */
         public boolean isCompleted() {
-          return this != IN_PROGRESS;
+          return (this == DONE) || (this == UPLOADED);
         }
       }
 
@@ -1167,6 +1349,7 @@ public class CommonConstants {
       public static final String END_OFFSET = "segment.realtime.endOffset";
       public static final String NUM_REPLICAS = "segment.realtime.numReplicas";
       public static final String FLUSH_THRESHOLD_SIZE = "segment.flush.threshold.size";
+      @Deprecated
       public static final String FLUSH_THRESHOLD_TIME = "segment.flush.threshold.time";
 
       // Deprecated, but kept for backward-compatibility of reading old segments' ZK metadata
@@ -1241,9 +1424,30 @@ public class CommonConstants {
   }
 
   public static class Query {
+
+    /**
+     * Configuration keys for query context mode.
+     *
+     * Valid values are 'strict' (ignoring case) or empty.
+     *
+     * In strict mode, if the {@link QueryThreadContext} is not initialized, an {@link IllegalStateException} will be
+     * thrown when setter and getter methods are used. Otherwise a warning will be logged and the fake instance will be
+     * returned.
+     */
+    public static final String CONFIG_OF_QUERY_CONTEXT_MODE = "pinot.query.context.mode";
+
     public static class Request {
       public static class MetadataKeys {
+        /// This is the request id, which may change during the execution.
+        ///
+        /// See [QueryThreadContext#getRequestId()] for more details.
         public static final String REQUEST_ID = "requestId";
+        /// Ths is the correlation id, which is set when the query starts and will not change during the execution.
+        /// This value is either set by the client or generated by the broker, in which case it will be equal to the
+        /// original request id.
+        ///
+        /// See [QueryThreadContext#getCid()] for more details.
+        public static final String CORRELATION_ID = "correlationId";
         public static final String BROKER_ID = "brokerId";
         public static final String ENABLE_TRACE = "enableTrace";
         public static final String ENABLE_STREAMING = "enableStreaming";
@@ -1317,6 +1521,13 @@ public class CommonConstants {
     public static final int DEFAULT_MAX_INBOUND_QUERY_DATA_BLOCK_SIZE_BYTES = 16 * 1024 * 1024;
 
     /**
+     * Enable splitting of data block payload during mailbox transfer.
+     */
+    public static final String KEY_OF_ENABLE_DATA_BLOCK_PAYLOAD_SPLIT =
+          "pinot.query.runner.enable.data.block.payload.split";
+    public static final boolean DEFAULT_ENABLE_DATA_BLOCK_PAYLOAD_SPLIT = false;
+
+    /**
      * Configuration for server port, port that opens and accepts
      * {@link org.apache.pinot.query.runtime.plan.DistributedStagePlan} and start executing query stages.
      */
@@ -1337,6 +1548,22 @@ public class CommonConstants {
     public static final String KEY_OF_MAX_ROWS_IN_JOIN = "pinot.query.join.max.rows";
     public static final String KEY_OF_JOIN_OVERFLOW_MODE = "pinot.query.join.overflow.mode";
 
+    /// Specifies the send stats mode used in MSE.
+    ///
+    /// Valid values are (in lower or upper case):
+    /// - "SAFE": MSE will only send stats if all instances in the cluster are running 1.4.0 or later.
+    /// - "ALWAYS": MSE will always send stats, regardless of the version of the instances in the cluster.
+    /// - "NEVER": MSE will never send stats.
+    ///
+    /// The reason for this flag that versions 1.3.0 and lower have two undesired behaviors:
+    /// 1. Some queries using intersection generate incorrect stats
+    /// 2. When stats from other nodes are sent but are different from expected, the query fails.
+    ///
+    /// In 1.4.0 the first issue is solved and instead of failing when unexpected stats are received, the query
+    /// continues without children stats. But if a query involves servers in versions 1.3.0 and 1.4.0, the one
+    /// running 1.3.0 may fail, which breaks backward compatibility.
+    public static final String KEY_OF_SEND_STATS_MODE = "pinot.query.mse.stats.mode";
+    public static final String DEFAULT_SEND_STATS_MODE = "SAFE";
     public enum JoinOverFlowMode {
       THROW, BREAK
     }
@@ -1361,6 +1588,18 @@ public class CommonConstants {
     public static final String KEY_OF_MULTISTAGE_EXPLAIN_INCLUDE_SEGMENT_PLAN =
         "pinot.query.multistage.explain.include.segment.plan";
     public static final boolean DEFAULT_OF_MULTISTAGE_EXPLAIN_INCLUDE_SEGMENT_PLAN = false;
+
+    /// Max number of rows operators stored in the op stats cache.
+    /// Although the cache stores stages, each entry has a weight equal to the number of operators in the stage.
+    public static final String KEY_OF_OP_STATS_CACHE_SIZE = "pinot.server.query.op.stats.cache.size";
+    public static final int DEFAULT_OF_OP_STATS_CACHE_SIZE = 1000;
+
+    /// Max time to keep the op stats in the cache.
+    public static final String KEY_OF_OP_STATS_CACHE_EXPIRE_MS = "pinot.server.query.op.stats.cache.ms";
+    public static final int DEFAULT_OF_OP_STATS_CACHE_EXPIRE_MS = 60 * 1000;
+    /// Timeout of the cancel request, in milliseconds.
+    public static final String KEY_OF_CANCEL_TIMEOUT_MS = "pinot.server.query.cancel.timeout.ms";
+    public static final long DEFAULT_OF_CANCEL_TIMEOUT_MS = 1000;
   }
 
   public static class NullValuePlaceHolder {
@@ -1405,5 +1644,16 @@ public class CommonConstants {
         "pinot.forward.index.default.target.max.chunk.size";
     public static final String CONFIG_OF_DEFAULT_TARGET_DOCS_PER_CHUNK =
         "pinot.forward.index.default.target.docs.per.chunk";
+  }
+
+  /**
+   * Configuration for setting up groovy static analyzer.
+   * User can config different configuration for query and ingestion (table creation and update) static analyzer.
+   * The all configuration is the default configuration for both query and ingestion static analyzer.
+   */
+  public static class Groovy {
+    public static final String GROOVY_ALL_STATIC_ANALYZER_CONFIG = "pinot.groovy.all.static.analyzer";
+    public static final String GROOVY_QUERY_STATIC_ANALYZER_CONFIG = "pinot.groovy.query.static.analyzer";
+    public static final String GROOVY_INGESTION_STATIC_ANALYZER_CONFIG = "pinot.groovy.ingestion.static.analyzer";
   }
 }

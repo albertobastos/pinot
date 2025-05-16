@@ -33,9 +33,11 @@ import org.apache.pinot.core.data.manager.offline.OfflineTableDataManager;
 import org.apache.pinot.core.data.manager.realtime.RealtimeTableDataManager;
 import org.apache.pinot.segment.local.data.manager.TableDataManager;
 import org.apache.pinot.segment.local.utils.SegmentLocks;
-import org.apache.pinot.segment.local.utils.SegmentPreprocessThrottler;
+import org.apache.pinot.segment.local.utils.SegmentOperationsThrottler;
+import org.apache.pinot.segment.local.utils.SegmentReloadSemaphore;
 import org.apache.pinot.spi.config.instance.InstanceDataManagerConfig;
 import org.apache.pinot.spi.config.table.TableConfig;
+import org.apache.pinot.spi.data.Schema;
 import org.apache.pinot.spi.stream.StreamConfigProperties;
 import org.apache.pinot.spi.utils.CommonConstants;
 import org.apache.pinot.spi.utils.IngestionConfigUtils;
@@ -49,21 +51,23 @@ public class DefaultTableDataManagerProvider implements TableDataManagerProvider
   private HelixManager _helixManager;
   private SegmentLocks _segmentLocks;
   private Semaphore _segmentBuildSemaphore;
-  private SegmentPreprocessThrottler _segmentPreprocessThrottler;
+  private SegmentOperationsThrottler _segmentOperationsThrottler;
 
   @Override
   public void init(InstanceDataManagerConfig instanceDataManagerConfig, HelixManager helixManager,
-      SegmentLocks segmentLocks, @Nullable SegmentPreprocessThrottler segmentPreprocessThrottler) {
+      SegmentLocks segmentLocks, @Nullable SegmentOperationsThrottler segmentOperationsThrottler) {
     _instanceDataManagerConfig = instanceDataManagerConfig;
     _helixManager = helixManager;
     _segmentLocks = segmentLocks;
     int maxParallelSegmentBuilds = instanceDataManagerConfig.getMaxParallelSegmentBuilds();
     _segmentBuildSemaphore = maxParallelSegmentBuilds > 0 ? new Semaphore(maxParallelSegmentBuilds, true) : null;
-    _segmentPreprocessThrottler = segmentPreprocessThrottler;
+    _segmentOperationsThrottler = segmentOperationsThrottler;
   }
 
   @Override
-  public TableDataManager getTableDataManager(TableConfig tableConfig, @Nullable ExecutorService segmentPreloadExecutor,
+  public TableDataManager getTableDataManager(TableConfig tableConfig, Schema schema,
+      SegmentReloadSemaphore segmentReloadSemaphore, ExecutorService segmentReloadExecutor,
+      @Nullable ExecutorService segmentPreloadExecutor,
       @Nullable Cache<Pair<String, String>, SegmentErrorInfo> errorCache,
       Supplier<Boolean> isServerReadyToServeQueries) {
     TableDataManager tableDataManager;
@@ -76,7 +80,7 @@ public class DefaultTableDataManagerProvider implements TableDataManagerProvider
         }
         break;
       case REALTIME:
-        Map<String, String> streamConfigMap = IngestionConfigUtils.getStreamConfigMaps(tableConfig).get(0);
+        Map<String, String> streamConfigMap = IngestionConfigUtils.getFirstStreamConfigMap(tableConfig);
         if (Boolean.parseBoolean(streamConfigMap.get(StreamConfigProperties.SERVER_UPLOAD_TO_DEEPSTORE))
             && StringUtils.isEmpty(_instanceDataManagerConfig.getSegmentStoreUri())) {
           throw new IllegalStateException(String.format("Table has enabled %s config. But the server has not "
@@ -88,8 +92,8 @@ public class DefaultTableDataManagerProvider implements TableDataManagerProvider
       default:
         throw new IllegalStateException();
     }
-    tableDataManager.init(_instanceDataManagerConfig, _helixManager, _segmentLocks, tableConfig, segmentPreloadExecutor,
-        errorCache, _segmentPreprocessThrottler);
+    tableDataManager.init(_instanceDataManagerConfig, _helixManager, _segmentLocks, tableConfig, schema,
+        segmentReloadSemaphore, segmentReloadExecutor, segmentPreloadExecutor, errorCache, _segmentOperationsThrottler);
     return tableDataManager;
   }
 }

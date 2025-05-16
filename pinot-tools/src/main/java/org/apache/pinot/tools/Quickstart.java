@@ -67,13 +67,13 @@ public class Quickstart extends QuickStartBase {
 
     QuickstartRunner runner =
         new QuickstartRunner(quickstartTableRequests, 1, 1, getNumQuickstartRunnerServers(), 1, quickstartRunnerDir,
-            true, getAuthProvider(), getConfigOverrides(), _zkExternalAddress, true);
+            true, getAuthProvider(), getConfigOverrides(), _zkExternalAddress, true, getClusterConfigOverrides());
 
     printStatus(Color.CYAN, "***** Starting Zookeeper, controller, broker, server and minion *****");
     runner.startAll();
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       try {
-        printStatus(Color.GREEN, "***** Shutting down offline quick start *****");
+        printStatus(Color.GREEN, "***** Shutting down quick start *****");
         runner.stop();
         FileUtils.deleteDirectory(quickstartTmpDir);
       } catch (Exception e) {
@@ -87,7 +87,7 @@ public class Quickstart extends QuickStartBase {
       waitForBootstrapToComplete(runner);
     }
 
-    printStatus(Color.YELLOW, "***** Offline quickstart setup complete *****");
+    printStatus(Color.YELLOW, "***** Quick start setup complete *****");
 
     if (useDefaultBootstrapTableDir() && !CollectionUtils.isEmpty(quickstartTableRequests)) {
       // Quickstart is using the default baseballStats sample table, so run sample queries.

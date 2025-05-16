@@ -20,7 +20,6 @@ package org.apache.pinot.integration.tests;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.File;
-import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -44,7 +43,6 @@ import org.apache.pinot.common.metadata.ZKMetadataProvider;
 import org.apache.pinot.common.metadata.controllerjob.ControllerJobType;
 import org.apache.pinot.common.metadata.segment.SegmentZKMetadata;
 import org.apache.pinot.common.utils.FileUploadDownloadClient;
-import org.apache.pinot.common.utils.HashUtil;
 import org.apache.pinot.common.utils.LLCSegmentName;
 import org.apache.pinot.controller.ControllerConf;
 import org.apache.pinot.plugin.stream.kafka.KafkaMessageBatch;
@@ -66,10 +64,8 @@ import org.apache.pinot.spi.stream.StreamPartitionMsgOffset;
 import org.apache.pinot.spi.utils.CommonConstants;
 import org.apache.pinot.spi.utils.JsonUtils;
 import org.apache.pinot.spi.utils.ReadMode;
-import org.apache.pinot.spi.utils.builder.TableConfigBuilder;
 import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 import org.apache.pinot.util.TestUtils;
-import org.junit.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -310,14 +306,6 @@ public class LLCRealtimeClusterIntegrationTest extends BaseRealtimeClusterIntegr
     }
   }
 
-  @Test(expectedExceptions = IOException.class)
-  public void testAddHLCTableShouldFail()
-      throws IOException {
-    TableConfig tableConfig = new TableConfigBuilder(TableType.REALTIME).setTableName("testTable")
-        .setStreamConfigs(Collections.singletonMap("stream.kafka.consumer.type", "HIGHLEVEL")).build();
-    sendPostRequest(_controllerRequestURLBuilder.forTableCreate(), tableConfig.toJsonString());
-  }
-
   @Test
   public void testReload()
       throws Exception {
@@ -426,76 +414,29 @@ public class LLCRealtimeClusterIntegrationTest extends BaseRealtimeClusterIntegr
   @Test
   public void testForceCommit()
       throws Exception {
-    Set<String> consumingSegments = getConsumingSegmentsFromIdealState(getTableName() + "_REALTIME");
-    String jobId = forceCommit(getTableName());
-    testForceCommitInternal(jobId, consumingSegments, 60000L);
+    String realtimeTableName = TableNameBuilder.REALTIME.tableNameWithType(getTableName());
+    Set<String> consumingSegments = getConsumingSegmentsFromIdealState(realtimeTableName);
+    if (RANDOM.nextBoolean()) {
+      // Regular force commit without batch
+      String jobId = forceCommit(realtimeTableName);
+      testForceCommitInternal(realtimeTableName, jobId, consumingSegments, 60000L);
+    } else {
+      // Force commit with batch
+      String jobId = forceCommit(realtimeTableName, 1, 1, 120);
+      testForceCommitInternal(realtimeTableName, jobId, consumingSegments, 120000L);
+    }
   }
 
-  @Test
-  public void testForceCommitInBatches()
-      throws Exception {
-    Set<String> consumingSegments = getConsumingSegmentsFromIdealState(getTableName() + "_REALTIME");
-    String jobId = forceCommit(getTableName(), 1, 5, 210);
-    testForceCommitInternal(jobId, consumingSegments, 240000L);
-  }
-
-  private void testForceCommitInternal(String jobId, Set<String> consumingSegments, long timeoutMs) {
-    Map<String, String> jobMetadata =
-        _helixResourceManager.getControllerJobZKMetadata(jobId, ControllerJobType.FORCE_COMMIT);
-    assert jobMetadata != null;
-    assert jobMetadata.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_FORCE_COMMITTED_LIST) != null;
-
-    TestUtils.waitForCondition(aVoid -> {
-      try {
-        if (isForceCommitJobCompleted(jobId)) {
-          for (String segmentName : consumingSegments) {
-            assertEquals(CommonConstants.Segment.Realtime.Status.DONE, _controllerStarter.getHelixResourceManager()
-                .getSegmentZKMetadata(getTableName() + "_REALTIME", segmentName).getStatus());
-          }
-          return true;
-        }
-        return false;
-      } catch (Exception e) {
-        return false;
-      }
-    }, timeoutMs, "Error verifying force commit operation on table!");
-  }
-
-  public Set<String> getConsumingSegmentsFromIdealState(String tableNameWithType) {
-    IdealState tableIdealState = _controllerStarter.getHelixResourceManager().getTableIdealState(tableNameWithType);
-    Map<String, Map<String, String>> segmentAssignment = tableIdealState.getRecord().getMapFields();
-    Set<String> matchingSegments = new HashSet<>(HashUtil.getHashMapCapacity(segmentAssignment.size()));
-    for (Map.Entry<String, Map<String, String>> entry : segmentAssignment.entrySet()) {
-      Map<String, String> instanceStateMap = entry.getValue();
-      if (instanceStateMap.containsValue(CommonConstants.Helix.StateModel.SegmentStateModel.CONSUMING)) {
-        matchingSegments.add(entry.getKey());
+  public Set<String> getConsumingSegmentsFromIdealState(String realtimeTableName) {
+    IdealState idealState = _helixResourceManager.getTableIdealState(realtimeTableName);
+    assertNotNull(idealState);
+    Set<String> consumingSegments = new HashSet<>();
+    for (Map.Entry<String, Map<String, String>> entry : idealState.getRecord().getMapFields().entrySet()) {
+      if (entry.getValue().containsValue(CommonConstants.Helix.StateModel.SegmentStateModel.CONSUMING)) {
+        consumingSegments.add(entry.getKey());
       }
     }
-    return matchingSegments;
-  }
-
-  public boolean isForceCommitJobCompleted(String forceCommitJobId)
-      throws Exception {
-    String jobStatusResponse = sendGetRequest(_controllerRequestURLBuilder.forForceCommitJobStatus(forceCommitJobId));
-    JsonNode jobStatus = JsonUtils.stringToJsonNode(jobStatusResponse);
-
-    assertEquals(jobStatus.get("jobId").asText(), forceCommitJobId);
-    assertEquals(jobStatus.get("jobType").asText(), "FORCE_COMMIT");
-
-    assert jobStatus.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_FORCE_COMMITTED_LIST) != null;
-    assert jobStatus.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_YET_TO_BE_COMMITTED_LIST) != null;
-
-    Set<String> allSegments = JsonUtils.stringToObject(
-        jobStatus.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_FORCE_COMMITTED_LIST).asText(), HashSet.class);
-    Set<String> segmentsPending = new HashSet<>();
-    for (JsonNode element : jobStatus.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_YET_TO_BE_COMMITTED_LIST)) {
-      segmentsPending.add(element.asText());
-    }
-
-    assert segmentsPending.size() <= allSegments.size();
-    assert jobStatus.get("numberOfSegmentsYetToBeCommitted").asInt(-1) == segmentsPending.size();
-
-    return jobStatus.get("numberOfSegmentsYetToBeCommitted").asInt(-1) == 0;
+    return consumingSegments;
   }
 
   private String forceCommit(String tableName)
@@ -506,11 +447,58 @@ public class LLCRealtimeClusterIntegrationTest extends BaseRealtimeClusterIntegr
 
   private String forceCommit(String tableName, int batchSize, int batchIntervalSec, int batchTimeoutSec)
       throws Exception {
-    String response =
-        sendPostRequest(_controllerRequestURLBuilder.forTableForceCommit(tableName) + "?batchSize=" + batchSize
-                + "&batchStatusCheckIntervalSec=" + batchIntervalSec + "&batchStatusCheckTimeoutSec=" + batchTimeoutSec,
-            null);
+    String response = sendPostRequest(
+        _controllerRequestURLBuilder.forTableForceCommit(tableName) + "?batchSize=" + batchSize
+            + "&batchStatusCheckIntervalSec=" + batchIntervalSec + "&batchStatusCheckTimeoutSec=" + batchTimeoutSec,
+        null);
     return JsonUtils.stringToJsonNode(response).get("forceCommitJobId").asText();
+  }
+
+  private void testForceCommitInternal(String realtimeTableName, String jobId, Set<String> consumingSegments,
+      long timeoutMs) {
+    Map<String, String> jobMetadata =
+        _helixResourceManager.getControllerJobZKMetadata(jobId, ControllerJobType.FORCE_COMMIT);
+    assertNotNull(jobMetadata);
+    assertNotNull(jobMetadata.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_FORCE_COMMITTED_LIST));
+
+    TestUtils.waitForCondition(aVoid -> {
+      try {
+        if (isForceCommitJobCompleted(jobId)) {
+          for (String segmentName : consumingSegments) {
+            SegmentZKMetadata segmentZKMetadata =
+                _helixResourceManager.getSegmentZKMetadata(realtimeTableName, segmentName);
+            assertNotNull(segmentZKMetadata);
+            assertEquals(segmentZKMetadata.getStatus(), CommonConstants.Segment.Realtime.Status.DONE);
+          }
+          return true;
+        }
+        return false;
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    }, timeoutMs, "Error verifying force commit operation on table!");
+  }
+
+  public boolean isForceCommitJobCompleted(String forceCommitJobId)
+      throws Exception {
+    String jobStatusResponse = sendGetRequest(_controllerRequestURLBuilder.forForceCommitJobStatus(forceCommitJobId));
+    JsonNode jobStatus = JsonUtils.stringToJsonNode(jobStatusResponse);
+
+    assertEquals(jobStatus.get("jobId").asText(), forceCommitJobId);
+    assertEquals(jobStatus.get("jobType").asText(), "FORCE_COMMIT");
+
+    Set<String> allSegments = JsonUtils.stringToObject(
+        jobStatus.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_FORCE_COMMITTED_LIST).asText(), HashSet.class);
+    Set<String> pendingSegments = new HashSet<>();
+    for (JsonNode element : jobStatus.get(CommonConstants.ControllerJob.CONSUMING_SEGMENTS_YET_TO_BE_COMMITTED_LIST)) {
+      pendingSegments.add(element.asText());
+    }
+
+    assertTrue(pendingSegments.size() <= allSegments.size());
+    assertEquals(jobStatus.get(CommonConstants.ControllerJob.NUM_CONSUMING_SEGMENTS_YET_TO_BE_COMMITTED).asInt(-1),
+        pendingSegments.size());
+
+    return pendingSegments.isEmpty();
   }
 
   @Test
@@ -578,7 +566,7 @@ public class LLCRealtimeClusterIntegrationTest extends BaseRealtimeClusterIntegr
           }
         }
       });
-      Assert.assertTrue("No consuming segment found in partition " + partition, seqNum.get() >= 0);
+      assertTrue(seqNum.get() >= 0, "No consuming segment found in partition: " + partition);
       return seqNum.get();
     }
 

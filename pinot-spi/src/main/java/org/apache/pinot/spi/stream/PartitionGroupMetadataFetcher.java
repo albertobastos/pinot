@@ -40,13 +40,16 @@ public class PartitionGroupMetadataFetcher implements Callable<Boolean> {
   private final List<PartitionGroupConsumptionStatus> _partitionGroupConsumptionStatusList;
   private Exception _exception;
   private final List<String> _topicNames;
+  private final boolean _forceGetOffsetFromStream;
 
   public PartitionGroupMetadataFetcher(List<StreamConfig> streamConfigs,
-      List<PartitionGroupConsumptionStatus> partitionGroupConsumptionStatusList) {
+      List<PartitionGroupConsumptionStatus> partitionGroupConsumptionStatusList,
+      boolean forceGetOffsetFromStream) {
     _topicNames = streamConfigs.stream().map(StreamConfig::getTopicName).collect(Collectors.toList());
     _streamConfigs = streamConfigs;
     _partitionGroupConsumptionStatusList = partitionGroupConsumptionStatusList;
     _newPartitionGroupMetadataList = new ArrayList<>();
+    _forceGetOffsetFromStream = forceGetOffsetFromStream;
   }
 
   public List<PartitionGroupMetadata> getPartitionGroupMetadataList() {
@@ -78,15 +81,16 @@ public class PartitionGroupMetadataFetcher implements Callable<Boolean> {
                       partitionGroupConsumptionStatus.getPartitionGroupId()) == index)
               .collect(Collectors.toList());
       try (
-          StreamMetadataProvider streamMetadataProvider =
-              streamConsumerFactory.createStreamMetadataProvider(clientId)) {
-        _newPartitionGroupMetadataList.addAll(streamMetadataProvider.computePartitionGroupMetadata(clientId,
-            _streamConfigs.get(i),
-            topicPartitionGroupConsumptionStatusList, /*maxWaitTimeMs=*/15000).stream().map(
-            metadata -> new PartitionGroupMetadata(
-                IngestionConfigUtils.getPinotPartitionIdFromStreamPartitionId(
-                    metadata.getPartitionGroupId(), index),
-                metadata.getStartOffset())).collect(Collectors.toList())
+          StreamMetadataProvider streamMetadataProvider = streamConsumerFactory.createStreamMetadataProvider(
+              StreamConsumerFactory.getUniqueClientId(clientId))) {
+        _newPartitionGroupMetadataList.addAll(
+            streamMetadataProvider.computePartitionGroupMetadata(StreamConsumerFactory.getUniqueClientId(clientId),
+                _streamConfigs.get(i),
+                topicPartitionGroupConsumptionStatusList, /*maxWaitTimeMs=*/15000, _forceGetOffsetFromStream).stream()
+                .map(metadata -> new PartitionGroupMetadata(
+                    IngestionConfigUtils.getPinotPartitionIdFromStreamPartitionId(
+                        metadata.getPartitionGroupId(), index),
+                    metadata.getStartOffset())).collect(Collectors.toList())
         );
         if (_exception != null) {
           // We had at least one failure, but succeeded now. Log an info

@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,7 +34,6 @@ import org.apache.commons.io.output.UnsynchronizedByteArrayOutputStream;
 import org.apache.pinot.common.CustomObject;
 import org.apache.pinot.common.datatable.DataTableImplV4;
 import org.apache.pinot.common.datatable.DataTableUtils;
-import org.apache.pinot.common.response.ProcessingException;
 import org.apache.pinot.common.utils.DataSchema;
 import org.apache.pinot.segment.spi.memory.DataBuffer;
 import org.apache.pinot.segment.spi.memory.PinotByteBuffer;
@@ -388,11 +388,6 @@ public abstract class BaseDataBlock implements DataBlock {
   }
 
   @Override
-  public void addException(ProcessingException processingException) {
-    _errCodeToExceptionMap.put(processingException.getErrorCode(), processingException.getMessage());
-  }
-
-  @Override
   public void addException(int errCode, String errMsg) {
     _errCodeToExceptionMap.put(errCode, errMsg);
   }
@@ -408,7 +403,14 @@ public abstract class BaseDataBlock implements DataBlock {
     if (_serialized == null) {
       _serialized = DataBlockUtils.serialize(this);
     }
-    return _serialized;
+    // Return a copy of the serialized data to avoid external modification.
+    List<ByteBuffer> copy = new ArrayList<>(_serialized.size());
+    for (ByteBuffer page: _serialized) {
+      ByteBuffer pageCopy = page.duplicate();
+      pageCopy.order(page.order());
+      copy.add(pageCopy);
+    }
+    return copy;
   }
 
   @Override

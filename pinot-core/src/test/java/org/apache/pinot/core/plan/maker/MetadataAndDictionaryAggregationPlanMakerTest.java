@@ -21,7 +21,6 @@ package org.apache.pinot.core.plan.maker;
 import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.io.FileUtils;
@@ -34,6 +33,7 @@ import org.apache.pinot.core.operator.query.NonScanBasedAggregationOperator;
 import org.apache.pinot.core.operator.query.SelectionOnlyOperator;
 import org.apache.pinot.core.query.request.context.QueryContext;
 import org.apache.pinot.core.query.request.context.utils.QueryContextConverterUtils;
+import org.apache.pinot.segment.local.data.manager.TableDataManager;
 import org.apache.pinot.segment.local.indexsegment.immutable.ImmutableSegmentImpl;
 import org.apache.pinot.segment.local.indexsegment.immutable.ImmutableSegmentLoader;
 import org.apache.pinot.segment.local.segment.creator.impl.SegmentIndexCreationDriverImpl;
@@ -62,6 +62,7 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
@@ -128,10 +129,15 @@ public class MetadataAndDictionaryAggregationPlanMakerTest {
     ServerMetrics.register(mock(ServerMetrics.class));
     _indexSegment = ImmutableSegmentLoader.load(new File(INDEX_DIR, SEGMENT_NAME), ReadMode.heap);
     _upsertIndexSegment = ImmutableSegmentLoader.load(new File(INDEX_DIR, SEGMENT_NAME), ReadMode.heap);
-    UpsertContext upsertContext =
-        new UpsertContext.Builder().setTableConfig(mock(TableConfig.class)).setSchema(mock(Schema.class))
-            .setPrimaryKeyColumns(Collections.singletonList("column6"))
-            .setComparisonColumns(Collections.singletonList("daysSinceEpoch")).setTableIndexDir(INDEX_DIR).build();
+    TableDataManager tableDataManager = mock(TableDataManager.class);
+    when(tableDataManager.getTableDataDir()).thenReturn(INDEX_DIR);
+    UpsertContext upsertContext = new UpsertContext.Builder()
+        .setTableConfig(mock(TableConfig.class))
+        .setSchema(mock(Schema.class))
+        .setTableDataManager(tableDataManager)
+        .setPrimaryKeyColumns(List.of("column6"))
+        .setComparisonColumns(List.of("daysSinceEpoch"))
+        .build();
     ConcurrentMapPartitionUpsertMetadataManager upsertMetadataManager =
         new ConcurrentMapPartitionUpsertMetadataManager("testTable_REALTIME", 0, upsertContext);
     ((ImmutableSegmentImpl) _upsertIndexSegment).enableUpsert(upsertMetadataManager,
@@ -178,13 +184,18 @@ public class MetadataAndDictionaryAggregationPlanMakerTest {
     entries.add(new Object[]{
         "select * from testTable where daysSinceEpoch > 100", SelectionOnlyOperator.class, SelectionOnlyOperator.class
     });
-    // COUNT from metadata (via fast filtered count which knows the number of docs in the segment)
+    // COUNT from metadata (via non-scan-based aggregation because it is an all-match)
     entries.add(new Object[]{
-        "select count(*) from testTable", FastFilteredCountOperator.class, FastFilteredCountOperator.class
+        "select count(*) from testTable", NonScanBasedAggregationOperator.class, FastFilteredCountOperator.class
+    });
+    // COUNT from metadata with a non-match-all filter, fast filtered count is to be used
+    entries.add(new Object[]{
+        "select count(*) from testTable where column1 <= 10", FastFilteredCountOperator.class,
+        FastFilteredCountOperator.class
     });
     // COUNT from metadata with match all filter
     entries.add(new Object[]{
-        "select count(*) from testTable where column1 > 10", FastFilteredCountOperator.class,
+        "select count(*) from testTable where column1 > 10", NonScanBasedAggregationOperator.class,
         FastFilteredCountOperator.class
     });
     // MIN/MAX from dictionary

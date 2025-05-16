@@ -58,6 +58,9 @@ public class HybridClusterIntegrationTest extends BaseClusterIntegrationTestSet 
   private static final String TENANT_NAME = "TestTenant";
   private static final int NUM_OFFLINE_SEGMENTS = 8;
   private static final int NUM_REALTIME_SEGMENTS = 6;
+  protected static final int NUM_SERVERS_OFFLINE = 1;
+  protected static final int NUM_SERVERS_REALTIME = 1;
+  protected static final int NUM_SERVERS = NUM_SERVERS_OFFLINE + NUM_SERVERS_REALTIME;
 
   @Override
   protected String getBrokerTenant() {
@@ -131,12 +134,18 @@ public class HybridClusterIntegrationTest extends BaseClusterIntegrationTestSet 
     // Set max segment preprocess parallelism to 10
     _helixManager.getConfigAccessor()
         .set(scope, CommonConstants.Helix.CONFIG_OF_MAX_SEGMENT_PREPROCESS_PARALLELISM, Integer.toString(10));
+    // Set max segment startree preprocess parallelism to 6
+    _helixManager.getConfigAccessor()
+        .set(scope, CommonConstants.Helix.CONFIG_OF_MAX_SEGMENT_STARTREE_PREPROCESS_PARALLELISM, Integer.toString(6));
+    // Set max segment download parallelism to 12 to test that all segments can be processed
+    _helixManager.getConfigAccessor()
+        .set(scope, CommonConstants.Helix.CONFIG_OF_MAX_SEGMENT_DOWNLOAD_PARALLELISM, Integer.toString(12));
     startBroker();
-    startServers(2);
+    startServers(NUM_SERVERS);
     startKafka();
 
     // Create tenants
-    createServerTenant(TENANT_NAME, 1, 1);
+    createServerTenant(TENANT_NAME, NUM_SERVERS_OFFLINE, NUM_SERVERS_REALTIME);
   }
 
   @Test
@@ -337,6 +346,35 @@ public class HybridClusterIntegrationTest extends BaseClusterIntegrationTestSet 
   }
 
   @Test(dataProvider = "useBothQueryEngines")
+  public void testExplainDropResults(boolean useMultiStageQueryEngine)
+      throws Exception {
+    setUseMultiStageQueryEngine(useMultiStageQueryEngine);
+    String resultTag = "resultTable";
+    String query = String.format("EXPLAIN PLAN FOR SELECT * FROM %s limit 10", getTableName());
+
+    // dropResults=true - resultTable must be in the response (it is a query plan)
+    JsonNode jsonNode = postQueryWithOptions(query, "dropResults=true");
+    Assert.assertTrue(jsonNode.has(resultTag));
+    query = String.format("EXPLAIN PLAN WITHOUT IMPLEMENTATION FOR SELECT * FROM %s limit 10", getTableName());
+
+    // dropResults=true - resultTable must be in the response (it is a query plan)
+    jsonNode = postQueryWithOptions(query, "dropResults=true");
+    Assert.assertTrue(jsonNode.has(resultTag));
+
+    query = String.format("EXPLAIN IMPLEMENTATION PLAN FOR SELECT * FROM %s limit 10", getTableName());
+
+    // dropResults=true - resultTable must be in the response (it is a query plan)
+    jsonNode = postQueryWithOptions(query, "dropResults=true");
+    Assert.assertTrue(jsonNode.has(resultTag));
+
+    query = String.format("EXPLAIN PLAN FOR SELECT 1 + 1 FROM %s limit 10", getTableName());
+
+    // dropResults=true - resultTable must be in the response (it is a query plan)
+    jsonNode = postQueryWithOptions(query, "dropResults=true");
+    Assert.assertTrue(jsonNode.has(resultTag));
+  }
+
+  @Test(dataProvider = "useBothQueryEngines")
   public void testHardcodedQueries(boolean useMultiStageQueryEngine)
       throws Exception {
     setUseMultiStageQueryEngine(useMultiStageQueryEngine);
@@ -358,13 +396,6 @@ public class HybridClusterIntegrationTest extends BaseClusterIntegrationTestSet 
       throws Exception {
     setUseMultiStageQueryEngine(useMultiStageQueryEngine);
     super.testGeneratedQueries(true, useMultiStageQueryEngine);
-  }
-
-  @Test(dataProvider = "useBothQueryEngines")
-  public void testQueryExceptions(boolean useMultiStageQueryEngine)
-      throws Exception {
-    setUseMultiStageQueryEngine(useMultiStageQueryEngine);
-    super.testQueryExceptions();
   }
 
   @Test

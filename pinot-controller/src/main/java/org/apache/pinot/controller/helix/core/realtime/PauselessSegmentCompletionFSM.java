@@ -23,24 +23,15 @@ import org.apache.pinot.common.protocols.SegmentCompletionProtocol;
 import org.apache.pinot.common.utils.LLCSegmentName;
 import org.apache.pinot.controller.helix.core.realtime.segment.CommittingSegmentDescriptor;
 import org.apache.pinot.spi.stream.StreamPartitionMsgOffset;
-import org.apache.pinot.spi.stream.StreamPartitionMsgOffsetFactory;
-import org.apache.pinot.spi.utils.CommonConstants;
 import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 
 
 public class PauselessSegmentCompletionFSM extends BlockingSegmentCompletionFSM {
+
   public PauselessSegmentCompletionFSM(PinotLLCRealtimeSegmentManager segmentManager,
       SegmentCompletionManager segmentCompletionManager, LLCSegmentName segmentName,
       SegmentZKMetadata segmentMetadata) {
     super(segmentManager, segmentCompletionManager, segmentName, segmentMetadata);
-    if (segmentMetadata.getStatus() == CommonConstants.Segment.Realtime.Status.COMMITTING) {
-      StreamPartitionMsgOffsetFactory factory =
-          _segmentCompletionManager.getStreamPartitionMsgOffsetFactory(_segmentName);
-      StreamPartitionMsgOffset endOffset = factory.create(segmentMetadata.getEndOffset());
-      _state = BlockingSegmentCompletionFSMState.COMMITTED;
-      _winningOffset = endOffset;
-      _winner = "UNKNOWN";
-    }
   }
 
   @Override
@@ -58,7 +49,7 @@ public class PauselessSegmentCompletionFSM extends BlockingSegmentCompletionFSM 
       LOGGER.info(
           "Starting to commit changes to ZK and ideal state for the segment:{} during pauseles ingestion as the "
               + "leader has been selected", _segmentName);
-      _segmentManager.commitSegmentStartMetadata(
+      _segmentManager.commitSegmentMetadataToCommitting(
           TableNameBuilder.REALTIME.tableNameWithType(_segmentName.getTableName()), committingSegmentDescriptor);
     } catch (Exception e) {
       // this aims to handle the failures during commitSegmentStartMetadata
@@ -104,7 +95,7 @@ public class PauselessSegmentCompletionFSM extends BlockingSegmentCompletionFSM 
   @Override
   protected void commitSegmentMetadata(String realtimeTableName,
       CommittingSegmentDescriptor committingSegmentDescriptor) {
-    _segmentManager.commitSegmentEndMetadata(realtimeTableName, committingSegmentDescriptor);
+    _segmentManager.commitSegmentMetadataToDone(realtimeTableName, committingSegmentDescriptor);
   }
 
   @Override

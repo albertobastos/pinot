@@ -100,6 +100,8 @@ public class CalciteSqlParser {
       throws SqlCompilationException {
     long parseStartTimeNs = System.nanoTime();
 
+    sql = ParserUtils.sanitizeSql(sql);
+
     // extract and remove OPTIONS string
     List<String> options = extractOptionsFromSql(sql);
     if (!options.isEmpty()) {
@@ -301,7 +303,7 @@ public class CalciteSqlParser {
       List<Expression> operands = filterExpression.getFunctionCall().getOperands();
       for (int i = 1; i < operands.size(); i++) {
         if (operands.get(i).getLiteral().isSetNullValue()) {
-          throw new IllegalStateException(String.format("Using NULL in %s filter is not supported", operator));
+          throw new IllegalStateException("Using NULL in " + operator + " filter is not supported");
         }
       }
     }

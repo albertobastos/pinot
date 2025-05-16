@@ -542,6 +542,7 @@ public class PinotHelixTaskResourceManager {
    */
   public synchronized Map<String, String> getTaskRuntimeConfig(String taskName) {
     JobConfig jobConfig = _taskDriver.getJobConfig(getHelixJobName(taskName));
+    Preconditions.checkArgument(jobConfig != null, "Task: %s does not exist", taskName);
     HashMap<String, String> configs = new HashMap<>();
     configs.put("ConcurrentTasksPerWorker", String.valueOf(jobConfig.getNumConcurrentTasksPerInstance()));
     configs.put("TaskTimeoutMs", String.valueOf(jobConfig.getTimeoutPerTask()));
@@ -876,6 +877,11 @@ public class PinotHelixTaskResourceManager {
       if (jobFinishTimeMs > 0) {
         taskDebugInfo.setFinishTime(DateTimeUtils.epochToDefaultDateFormat(jobFinishTimeMs));
       }
+      String triggeredBy = jobConfig.getTaskConfigMap().values().stream().findFirst()
+          .map(TaskConfig::getConfigMap)
+          .map(taskConfigs -> taskConfigs.get(PinotTaskManager.TRIGGERED_BY))
+          .orElse("");
+      taskDebugInfo.setTriggeredBy(triggeredBy);
       Set<Integer> partitionSet = jobContext.getPartitionSet();
       TaskCount subtaskCount = new TaskCount();
       for (int partition : partitionSet) {
@@ -890,6 +896,7 @@ public class PinotHelixTaskResourceManager {
         String taskIdForPartition = jobContext.getTaskIdForPartition(partition);
         subtaskDebugInfo.setTaskId(taskIdForPartition);
         subtaskDebugInfo.setState(partitionState);
+        subtaskDebugInfo.setTriggeredBy(triggeredBy);
         long subtaskStartTimeMs = jobContext.getPartitionStartTime(partition);
         if (subtaskStartTimeMs > 0) {
           subtaskDebugInfo.setStartTime(DateTimeUtils.epochToDefaultDateFormat(subtaskStartTimeMs));
@@ -955,7 +962,12 @@ public class PinotHelixTaskResourceManager {
    * @return Task type
    */
   private static String getTaskType(String name) {
-    return name.split(TASK_NAME_SEPARATOR)[1];
+    String[] parts = name.split(TASK_NAME_SEPARATOR);
+    if (parts.length < 2) {
+      throw new IllegalArgumentException(String.format("Invalid task name : %s. Missing separator %s",
+              name, TASK_NAME_SEPARATOR));
+    }
+    return parts[1];
   }
 
   public String getParentTaskName(String taskType, String taskName) {
@@ -987,7 +999,8 @@ public class PinotHelixTaskResourceManager {
     return MinionTaskMetadataUtils.getAllTaskMetadataLastUpdateTimeMs(propertyStore);
   }
 
-  @JsonPropertyOrder({"taskState", "subtaskCount", "startTime", "executionStartTime", "finishTime", "subtaskInfos"})
+  @JsonPropertyOrder({"taskState", "subtaskCount", "startTime", "executionStartTime", "finishTime", "triggeredBy",
+      "subtaskInfos"})
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public static class TaskDebugInfo {
     // Time at which the task (which may have multiple subtasks) got created.
@@ -998,6 +1011,7 @@ public class PinotHelixTaskResourceManager {
     private String _finishTime;
     private TaskState _taskState;
     private TaskCount _subtaskCount;
+    private String _triggeredBy;
     private List<SubtaskDebugInfo> _subtaskInfos;
 
     public TaskDebugInfo() {
@@ -1046,6 +1060,15 @@ public class PinotHelixTaskResourceManager {
       return _taskState;
     }
 
+    public String getTriggeredBy() {
+      return _triggeredBy;
+    }
+
+    public TaskDebugInfo setTriggeredBy(String triggeredBy) {
+      _triggeredBy = triggeredBy;
+      return this;
+    }
+
     public TaskCount getSubtaskCount() {
       return _subtaskCount;
     }
@@ -1055,7 +1078,7 @@ public class PinotHelixTaskResourceManager {
     }
   }
 
-  @JsonPropertyOrder({"taskId", "state", "startTime", "finishTime", "participant", "info", "taskConfig"})
+  @JsonPropertyOrder({"taskId", "state", "startTime", "finishTime", "participant", "info", "triggeredBy", "taskConfig"})
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public static class SubtaskDebugInfo {
     private String _taskId;
@@ -1064,6 +1087,7 @@ public class PinotHelixTaskResourceManager {
     private String _finishTime;
     private String _participant;
     private String _info;
+    private String _triggeredBy;
     private PinotTaskConfig _taskConfig;
 
     public SubtaskDebugInfo() {
@@ -1119,6 +1143,15 @@ public class PinotHelixTaskResourceManager {
 
     public String getInfo() {
       return _info;
+    }
+
+    public String getTriggeredBy() {
+      return _triggeredBy;
+    }
+
+    public SubtaskDebugInfo setTriggeredBy(String triggeredBy) {
+      _triggeredBy = triggeredBy;
+      return this;
     }
 
     public PinotTaskConfig getTaskConfig() {

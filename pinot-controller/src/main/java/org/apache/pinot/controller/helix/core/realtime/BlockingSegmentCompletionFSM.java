@@ -18,6 +18,7 @@
  */
 package org.apache.pinot.controller.helix.core.realtime;
 
+import com.google.common.base.Preconditions;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -143,12 +144,13 @@ public class BlockingSegmentCompletionFSM implements SegmentCompletionFSM {
     _maxTimeAllowedToCommitMs = _startTimeMs + _initialCommitTimeMs;
     _controllerVipUrl = segmentCompletionManager.getControllerVipUrl();
 
-    if (segmentMetadata.getStatus() == CommonConstants.Segment.Realtime.Status.DONE) {
+    if (segmentMetadata.getStatus() != CommonConstants.Segment.Realtime.Status.IN_PROGRESS) {
+      _state = BlockingSegmentCompletionFSMState.COMMITTED;
       StreamPartitionMsgOffsetFactory factory =
           _segmentCompletionManager.getStreamPartitionMsgOffsetFactory(_segmentName);
-      StreamPartitionMsgOffset endOffset = factory.create(segmentMetadata.getEndOffset());
-      _state = BlockingSegmentCompletionFSMState.COMMITTED;
-      _winningOffset = endOffset;
+      String endOffset = segmentMetadata.getEndOffset();
+      Preconditions.checkState(endOffset != null, "Failed to find end offset for segment: %s", segmentName);
+      _winningOffset = factory.create(endOffset);
       _winner = "UNKNOWN";
     }
   }
@@ -177,6 +179,21 @@ public class BlockingSegmentCompletionFSM implements SegmentCompletionFSM {
   public boolean isDone() {
     return _state.equals(BlockingSegmentCompletionFSMState.COMMITTED) || _state.equals(
         BlockingSegmentCompletionFSMState.ABORTED);
+  }
+
+  /**
+   * The method is used to decide whether we should reduce segment size and reset when server reports
+   * cannot build segment due to non-recoverable error.
+   * In most of cases, when such request is sent, the error should be deterministic. However, due to possible data lost,
+   * replicas may not hold exact same data and some of them might be able to build the segment.
+   * If the FSM _state indicates that one replica starts to commit, it means immutable segment can be
+   * created successfully, returns true.
+   *
+   * @return boolean
+   */
+  public boolean isImmutableSegmentCreated() {
+    return _state.equals(BlockingSegmentCompletionFSMState.COMMITTER_UPLOADING) || _state.equals(
+        BlockingSegmentCompletionFSMState.COMMITTING) || _state.equals(BlockingSegmentCompletionFSMState.COMMITTED);
   }
 
   /*

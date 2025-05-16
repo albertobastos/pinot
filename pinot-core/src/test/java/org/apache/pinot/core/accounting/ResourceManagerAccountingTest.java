@@ -45,7 +45,6 @@ import org.apache.pinot.core.data.table.IndexedTable;
 import org.apache.pinot.core.data.table.Record;
 import org.apache.pinot.core.data.table.SimpleIndexedTable;
 import org.apache.pinot.core.operator.blocks.results.GroupByResultsBlock;
-import org.apache.pinot.core.plan.maker.InstancePlanMakerImplV2;
 import org.apache.pinot.core.query.request.ServerQueryRequest;
 import org.apache.pinot.core.query.request.context.QueryContext;
 import org.apache.pinot.core.query.request.context.utils.QueryContextConverterUtils;
@@ -61,6 +60,7 @@ import org.apache.pinot.segment.spi.index.creator.JsonIndexCreator;
 import org.apache.pinot.segment.spi.memory.PinotDataBuffer;
 import org.apache.pinot.spi.accounting.ThreadExecutionContext;
 import org.apache.pinot.spi.accounting.ThreadResourceUsageProvider;
+import org.apache.pinot.spi.config.instance.InstanceType;
 import org.apache.pinot.spi.config.table.JsonIndexConfig;
 import org.apache.pinot.spi.env.PinotConfiguration;
 import org.apache.pinot.spi.exception.EarlyTerminationException;
@@ -113,9 +113,7 @@ public class ResourceManagerAccountingTest {
         for (int j = 0; j < 10; j++) {
           int finalJ = j;
           rm.getQueryWorkers().submit(() -> {
-            ThreadResourceUsageProvider threadResourceUsageProvider = new ThreadResourceUsageProvider();
-            Tracing.ThreadAccountantOps.setupWorker(finalJ, threadResourceUsageProvider,
-                threadExecutionContext);
+            Tracing.ThreadAccountantOps.setupWorker(finalJ, threadExecutionContext);
             for (int i = 0; i < (finalJ + 1) * 10; i++) {
               Tracing.ThreadAccountantOps.sample();
               for (int m = 0; m < 1000; m++) {
@@ -174,9 +172,7 @@ public class ResourceManagerAccountingTest {
         for (int j = 0; j < 10; j++) {
           int finalJ = j;
           rm.getQueryWorkers().submit(() -> {
-            ThreadResourceUsageProvider threadResourceUsageProvider = new ThreadResourceUsageProvider();
-            Tracing.ThreadAccountantOps.setupWorker(finalJ, threadResourceUsageProvider,
-                threadExecutionContext);
+            Tracing.ThreadAccountantOps.setupWorker(finalJ, threadExecutionContext);
             long[][] a = new long[1000][];
             for (int i = 0; i < (finalJ + 1) * 10; i++) {
               Tracing.ThreadAccountantOps.sample();
@@ -243,7 +239,8 @@ public class ResourceManagerAccountingTest {
       } catch (ExecutionException e) {
         Assert.assertFalse(futures[i].get().isCancelled());
         Assert.assertTrue(futures[i].get().isDone());
-        Assert.assertEquals(e.getMessage(), "org.apache.pinot.spi.exception.EarlyTerminationException");
+        Assert.assertTrue(e.getMessage().contains("EarlyTerminationException"),
+            "Error message should contain EarlyTerminationException, found: " + e.getMessage());
         return;
       }
     }
@@ -288,7 +285,7 @@ public class ResourceManagerAccountingTest {
     PinotConfiguration config = getConfig(20, 2, configs);
     ResourceManager rm = getResourceManager(20, 2, 1, 1, configs);
     // init accountant and start watcher task
-    Tracing.ThreadAccountantOps.initializeThreadAccountant(config, "testSelect");
+    Tracing.ThreadAccountantOps.initializeThreadAccountant(config, "testSelect", InstanceType.SERVER);
 
     CountDownLatch latch = new CountDownLatch(100);
     AtomicBoolean earlyTerminationOccurred = new AtomicBoolean(false);
@@ -332,7 +329,8 @@ public class ResourceManagerAccountingTest {
     List<Object[]> rows = DataBlockTestUtils.getRandomRows(dataSchema, NUM_ROWS, 0);
     IndexedTable indexedTable =
         new SimpleIndexedTable(dataSchema, false, queryContext, NUM_ROWS, Integer.MAX_VALUE, Integer.MAX_VALUE,
-            InstancePlanMakerImplV2.DEFAULT_MIN_INITIAL_INDEXED_TABLE_CAPACITY, Executors.newCachedThreadPool());
+            CommonConstants.Server.DEFAULT_QUERY_EXECUTOR_MIN_INITIAL_INDEXED_TABLE_CAPACITY,
+            Executors.newCachedThreadPool());
     for (Object[] row : rows) {
       indexedTable.upsert(new Record(row));
     }
@@ -356,7 +354,7 @@ public class ResourceManagerAccountingTest {
     PinotConfiguration config = getConfig(20, 2, configs);
     ResourceManager rm = getResourceManager(20, 2, 1, 1, configs);
     // init accountant and start watcher task
-    Tracing.ThreadAccountantOps.initializeThreadAccountant(config, "testGroupBy");
+    Tracing.ThreadAccountantOps.initializeThreadAccountant(config, "testGroupBy", InstanceType.SERVER);
 
     CountDownLatch latch = new CountDownLatch(100);
     AtomicBoolean earlyTerminationOccurred = new AtomicBoolean(false);
@@ -412,7 +410,8 @@ public class ResourceManagerAccountingTest {
     PinotConfiguration config = getConfig(2, 2, configs);
     ResourceManager rm = getResourceManager(2, 2, 1, 1, configs);
     // init accountant and start watcher task
-    Tracing.ThreadAccountantOps.initializeThreadAccountant(config, "testJsonIndexExtractMapOOM");
+    Tracing.ThreadAccountantOps.initializeThreadAccountant(config, "testJsonIndexExtractMapOOM",
+        InstanceType.SERVER);
 
     Supplier<String> randomJsonValue = () -> {
       Random random = new Random();
@@ -515,9 +514,7 @@ public class ResourceManagerAccountingTest {
         for (int j = 0; j < 10; j++) {
           int finalJ = j;
           futuresThread[j] = rm.getQueryWorkers().submit(() -> {
-            ThreadResourceUsageProvider threadResourceUsageProvider = new ThreadResourceUsageProvider();
-            Tracing.ThreadAccountantOps.setupWorker(finalJ, threadResourceUsageProvider,
-                threadExecutionContext);
+            Tracing.ThreadAccountantOps.setupWorker(finalJ, threadExecutionContext);
             long[][] a = new long[1000][];
             for (int i = 0; i < (finalK + 1) * 80; i++) {
               Tracing.ThreadAccountantOps.sample();

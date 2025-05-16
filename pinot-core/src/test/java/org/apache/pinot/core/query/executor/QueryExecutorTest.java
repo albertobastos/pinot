@@ -47,7 +47,6 @@ import org.apache.pinot.core.operator.blocks.InstanceResponseBlock;
 import org.apache.pinot.core.operator.blocks.results.AggregationResultsBlock;
 import org.apache.pinot.core.operator.blocks.results.GroupByResultsBlock;
 import org.apache.pinot.core.operator.timeseries.TimeSeriesOperatorUtils;
-import org.apache.pinot.core.operator.transform.function.TimeSeriesBucketTransformFunction;
 import org.apache.pinot.core.query.aggregation.function.TimeSeriesAggregationFunction;
 import org.apache.pinot.core.query.request.ServerQueryRequest;
 import org.apache.pinot.core.query.request.context.QueryContext;
@@ -161,7 +160,7 @@ public class QueryExecutorTest {
     when(instanceDataManagerConfig.getInstanceDataDir()).thenReturn(TEMP_DIR.getAbsolutePath());
     TableDataManagerProvider tableDataManagerProvider = new DefaultTableDataManagerProvider();
     tableDataManagerProvider.init(instanceDataManagerConfig, mock(HelixManager.class), new SegmentLocks(), null);
-    TableDataManager tableDataManager = tableDataManagerProvider.getTableDataManager(tableConfig);
+    TableDataManager tableDataManager = tableDataManagerProvider.getTableDataManager(tableConfig, schema);
     tableDataManager.start();
     for (ImmutableSegment indexSegment : _indexSegments) {
       tableDataManager.addSegment(indexSegment);
@@ -311,10 +310,9 @@ public class QueryExecutorTest {
       AggInfo aggInfo, List<String> groupBy) {
     List<ExpressionContext> groupByExpList = groupBy.stream().map(RequestContextUtils::getExpression)
         .collect(Collectors.toList());
-    ExpressionContext timeExpression = TimeSeriesBucketTransformFunction.create(TIME_SERIES_TIME_COL_NAME,
-        TimeUnit.SECONDS, timeBuckets, offsetSeconds);
+    ExpressionContext timeExpression = RequestContextUtils.getExpression(TIME_SERIES_TIME_COL_NAME);
     ExpressionContext aggregateExpr = TimeSeriesAggregationFunction.create(TIME_SERIES_LANGUAGE_NAME, valueExpression,
-        timeExpression, timeBuckets, aggInfo);
+        timeExpression, TimeUnit.SECONDS, offsetSeconds, timeBuckets, aggInfo);
     QueryContext.Builder builder = new QueryContext.Builder();
     builder.setTableName(OFFLINE_TABLE_NAME);
     builder.setAliasList(Collections.emptyList());

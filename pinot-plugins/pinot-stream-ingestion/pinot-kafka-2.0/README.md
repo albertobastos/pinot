@@ -26,7 +26,7 @@ A stream plugin for another version of kafka, or another stream, can be added in
 
 * How to build and release Pinot package with Kafka 2.x connector
 ```$xslt
-mvn clean package -DskipTests -Pbin-dist
+./mvnw clean package -DskipTests -Pbin-dist
 ```
 
 * How to use Kafka 2.x connector
@@ -34,7 +34,6 @@ Below is a sample `streamConfigs` used to create a realtime table with Kafka Str
 ```$xslt
 "streamConfigs": {
   "streamType": "kafka",
-  "stream.kafka.consumer.type": "highLevel",
   "stream.kafka.topic.name": "meetupRSVPEvents",
   "stream.kafka.decoder.class.name": "org.apache.pinot.plugin.stream.kafka.KafkaJSONMessageDecoder",
   "stream.kafka.hlc.zk.connect.string": "localhost:2191/kafka",

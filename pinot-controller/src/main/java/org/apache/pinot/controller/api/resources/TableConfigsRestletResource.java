@@ -37,6 +37,7 @@ import javax.inject.Inject;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -161,8 +162,12 @@ public class TableConfigsRestletResource {
     try {
       tableName = DatabaseUtils.translateTableName(tableName, headers);
       Schema schema = _pinotHelixResourceManager.getTableSchema(tableName);
-      TableConfig offlineTableConfig = _pinotHelixResourceManager.getOfflineTableConfig(tableName, false);
-      TableConfig realtimeTableConfig = _pinotHelixResourceManager.getRealtimeTableConfig(tableName, false);
+      if (schema == null) {
+        throw new NotFoundException(
+            String.format("Schema does not exist for table %s Use POST to create it first.", tableName));
+      }
+      TableConfig offlineTableConfig = _pinotHelixResourceManager.getOfflineTableConfig(tableName, false, false);
+      TableConfig realtimeTableConfig = _pinotHelixResourceManager.getRealtimeTableConfig(tableName, false, false);
       TableConfigs config = new TableConfigs(tableName, schema, offlineTableConfig, realtimeTableConfig);
       return config.toJsonString();
     } catch (Exception e) {

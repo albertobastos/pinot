@@ -34,13 +34,12 @@ import org.apache.pinot.common.restlet.resources.ValidDocIdsType;
 import org.apache.pinot.common.utils.config.TagNameUtils;
 import org.apache.pinot.controller.helix.core.minion.PinotHelixTaskResourceManager;
 import org.apache.pinot.controller.helix.core.minion.PinotTaskManager;
+import org.apache.pinot.controller.helix.core.minion.TaskSchedulingContext;
 import org.apache.pinot.core.common.MinionConstants;
 import org.apache.pinot.core.data.manager.realtime.RealtimeTableDataManager;
 import org.apache.pinot.core.data.manager.realtime.SegmentBuildTimeLeaseExtender;
 import org.apache.pinot.integration.tests.models.DummyTableUpsertMetadataManager;
-import org.apache.pinot.segment.local.upsert.TableUpsertMetadataManagerFactory;
 import org.apache.pinot.server.starter.helix.BaseServerStarter;
-import org.apache.pinot.server.starter.helix.HelixInstanceDataManagerConfig;
 import org.apache.pinot.spi.config.table.TableConfig;
 import org.apache.pinot.spi.config.table.TableTaskConfig;
 import org.apache.pinot.spi.config.table.TableType;
@@ -48,7 +47,8 @@ import org.apache.pinot.spi.config.table.TenantConfig;
 import org.apache.pinot.spi.config.table.UpsertConfig;
 import org.apache.pinot.spi.data.Schema;
 import org.apache.pinot.spi.env.PinotConfiguration;
-import org.apache.pinot.spi.utils.CommonConstants;
+import org.apache.pinot.spi.utils.CommonConstants.Server;
+import org.apache.pinot.spi.utils.Enablement;
 import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 import org.apache.pinot.util.TestUtils;
 import org.testng.annotations.AfterClass;
@@ -391,9 +391,9 @@ public class UpsertTableIntegrationTest extends BaseClusterIntegrationTest {
   public void testDefaultMetadataManagerClass()
       throws Exception {
     PinotConfiguration serverConf = getServerConf(NUM_SERVERS);
-    serverConf.setProperty(Joiner.on(".").join(CommonConstants.Server.INSTANCE_DATA_MANAGER_CONFIG_PREFIX,
-            HelixInstanceDataManagerConfig.UPSERT_CONFIG_PREFIX,
-            TableUpsertMetadataManagerFactory.UPSERT_DEFAULT_METADATA_MANAGER_CLASS),
+    serverConf.setProperty(Joiner.on(".")
+            .join(Server.INSTANCE_DATA_MANAGER_CONFIG_PREFIX, Server.Upsert.CONFIG_PREFIX,
+                Server.Upsert.DEFAULT_METADATA_MANAGER_CLASS),
         DummyTableUpsertMetadataManager.class.getName());
     BaseServerStarter serverStarter = startOneServer(serverConf);
 
@@ -445,7 +445,7 @@ public class UpsertTableIntegrationTest extends BaseClusterIntegrationTest {
     String tableName = "gameScoresWithCompaction";
     UpsertConfig upsertConfig = new UpsertConfig(UpsertConfig.Mode.FULL);
     upsertConfig.setDeleteRecordColumn(DELETE_COL);
-    upsertConfig.setEnableSnapshot(true);
+    upsertConfig.setSnapshot(Enablement.ENABLE);
     TableConfig tableConfig = setUpTable(tableName, kafkaTopicName, upsertConfig);
     tableConfig.setTaskConfig(getCompactionTaskConfig());
     updateTableConfig(tableConfig);
@@ -468,7 +468,8 @@ public class UpsertTableIntegrationTest extends BaseClusterIntegrationTest {
     sendPostRequest(_controllerRequestURLBuilder.forResumeConsumption(tableName));
     waitForNumQueriedSegmentsToConverge(tableName, 600_000L, 5, 2);
     String realtimeTableName = TableNameBuilder.forType(TableType.REALTIME).tableNameWithType(tableName);
-    assertNotNull(_taskManager.scheduleAllTasksForTable(realtimeTableName, null)
+    assertNotNull(_taskManager.scheduleTasks(new TaskSchedulingContext()
+            .setTablesToSchedule(Collections.singleton(realtimeTableName)))
         .get(MinionConstants.UpsertCompactionTask.TASK_TYPE));
     waitForTaskToComplete();
     // 2 segments should be compacted (351 rows -> 1 row; 500 rows -> 2 rows), 1 segment (149 rows) should be deleted
@@ -501,7 +502,8 @@ public class UpsertTableIntegrationTest extends BaseClusterIntegrationTest {
 
     // NOTE: When in-memory valid doc ids are used, no need to pause/resume consumption to trigger the snapshot.
     String realtimeTableName = TableNameBuilder.forType(TableType.REALTIME).tableNameWithType(tableName);
-    assertNotNull(_taskManager.scheduleAllTasksForTable(realtimeTableName, null)
+    assertNotNull(_taskManager.scheduleTasks(new TaskSchedulingContext()
+            .setTablesToSchedule(Collections.singleton(realtimeTableName)))
         .get(MinionConstants.UpsertCompactionTask.TASK_TYPE));
     waitForTaskToComplete();
     // 1 segment should be compacted (500 rows -> 2 rows)
@@ -544,7 +546,8 @@ public class UpsertTableIntegrationTest extends BaseClusterIntegrationTest {
     waitForNumQueriedSegmentsToConverge(tableName, 10_000L, 5, 2);
 
     String realtimeTableName = TableNameBuilder.forType(TableType.REALTIME).tableNameWithType(tableName);
-    assertNotNull(_taskManager.scheduleAllTasksForTable(realtimeTableName, null)
+    assertNotNull(_taskManager.scheduleTasks(new TaskSchedulingContext()
+            .setTablesToSchedule(Collections.singleton(realtimeTableName)))
         .get(MinionConstants.UpsertCompactionTask.TASK_TYPE));
     waitForTaskToComplete();
     // 1 segment should be compacted (351 rows -> 1 rows), 2 segments (500 rows, 151 rows) should be deleted

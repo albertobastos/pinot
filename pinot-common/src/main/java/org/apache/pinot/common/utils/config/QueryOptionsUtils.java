@@ -96,6 +96,14 @@ public class QueryOptionsUtils {
   }
 
   @Nullable
+  public static String resolveCaseInsensitiveKey(Object property) {
+    if (property instanceof String) {
+      return CONFIG_RESOLVER.get(((String) property).toLowerCase());
+    }
+    return null;
+  }
+
+  @Nullable
   public static Long getTimeoutMs(Map<String, String> queryOptions) {
     String timeoutMsString = queryOptions.get(QueryOptionKey.TIMEOUT_MS);
     return checkedParseLongPositive(QueryOptionKey.TIMEOUT_MS, timeoutMsString);
@@ -214,13 +222,6 @@ public class QueryOptionsUtils {
   }
 
   @Nullable
-  public static Integer getGroupTrimSize(Map<String, String> queryOptions) {
-    String groupTrimSize = queryOptions.get(QueryOptionKey.GROUP_TRIM_SIZE);
-    // NOTE: Non-positive value means turning off the intermediate level trim
-    return uncheckedParseInt(QueryOptionKey.GROUP_TRIM_SIZE, groupTrimSize);
-  }
-
-  @Nullable
   public static Integer getMinSegmentGroupTrimSize(Map<String, String> queryOptions) {
     String minSegmentGroupTrimSizeString = queryOptions.get(QueryOptionKey.MIN_SEGMENT_GROUP_TRIM_SIZE);
     // NOTE: Non-positive value means turning off the segment level trim
@@ -239,6 +240,13 @@ public class QueryOptionsUtils {
     String minBrokerGroupTrimSizeString = queryOptions.get(QueryOptionKey.MIN_BROKER_GROUP_TRIM_SIZE);
     // NOTE: Non-positive value means turning off the broker level trim
     return uncheckedParseInt(QueryOptionKey.MIN_BROKER_GROUP_TRIM_SIZE, minBrokerGroupTrimSizeString);
+  }
+
+  @Nullable
+  public static Integer getMSEMinGroupTrimSize(Map<String, String> queryOptions) {
+    String mseMinGroupTrimSizeString = queryOptions.get(QueryOptionKey.MSE_MIN_GROUP_TRIM_SIZE);
+    // NOTE: Non-positive value means turning off the intermediate stage trim
+    return uncheckedParseInt(QueryOptionKey.MSE_MIN_GROUP_TRIM_SIZE, mseMinGroupTrimSizeString);
   }
 
   @Nullable
@@ -298,6 +306,10 @@ public class QueryOptionsUtils {
     return checkedParseIntPositive(QueryOptionKey.NUM_GROUPS_LIMIT, maxNumGroupLimit);
   }
 
+  public static Integer getNumGroupsWarningLimit(Map<String, String> queryOptions) {
+    String numGroupsWarningLimit = queryOptions.get(QueryOptionKey.NUM_GROUPS_WARNING_LIMIT);
+    return checkedParseIntPositive(QueryOptionKey.NUM_GROUPS_WARNING_LIMIT, numGroupsWarningLimit);
+  }
   @Nullable
   public static Integer getMaxInitialResultHolderCapacity(Map<String, String> queryOptions) {
     String maxInitialResultHolderCapacity = queryOptions.get(QueryOptionKey.MAX_INITIAL_RESULT_HOLDER_CAPACITY);
@@ -306,6 +318,12 @@ public class QueryOptionsUtils {
 
   public static boolean optimizeMaxInitialResultHolderCapacityEnabled(Map<String, String> queryOptions) {
     return Boolean.parseBoolean(queryOptions.get(QueryOptionKey.OPTIMIZE_MAX_INITIAL_RESULT_HOLDER_CAPACITY));
+  }
+
+  @Nullable
+  public static Integer getMSEMaxInitialResultHolderCapacity(Map<String, String> queryOptions) {
+    String maxInitialCapacity = queryOptions.get(QueryOptionKey.MSE_MAX_INITIAL_RESULT_HOLDER_CAPACITY);
+    return checkedParseIntPositive(QueryOptionKey.MSE_MAX_INITIAL_RESULT_HOLDER_CAPACITY, maxInitialCapacity);
   }
 
   @Nullable
@@ -354,6 +372,15 @@ public class QueryOptionsUtils {
 
   public static boolean isSecondaryWorkload(Map<String, String> queryOptions) {
     return Boolean.parseBoolean(queryOptions.get(QueryOptionKey.IS_SECONDARY_WORKLOAD));
+  }
+
+  public static Boolean isUseMSEToFillEmptySchema(Map<String, String> queryOptions, boolean defaultValue) {
+    String useMSEToFillEmptySchema = queryOptions.get(QueryOptionKey.USE_MSE_TO_FILL_EMPTY_RESPONSE_SCHEMA);
+    return useMSEToFillEmptySchema != null ? Boolean.parseBoolean(useMSEToFillEmptySchema) : defaultValue;
+  }
+
+  public static boolean isInferInvalidSegmentPartition(Map<String, String> queryOptions) {
+    return Boolean.parseBoolean(queryOptions.getOrDefault(QueryOptionKey.INFER_INVALID_SEGMENT_PARTITION, "false"));
   }
 
   @Nullable

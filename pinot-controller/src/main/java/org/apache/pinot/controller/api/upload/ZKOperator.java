@@ -40,9 +40,12 @@ import org.apache.pinot.common.utils.FileUploadDownloadClient;
 import org.apache.pinot.common.utils.FileUploadDownloadClient.FileUploadType;
 import org.apache.pinot.controller.ControllerConf;
 import org.apache.pinot.controller.api.exception.ControllerApplicationException;
+import org.apache.pinot.controller.api.resources.ResourceUtils;
 import org.apache.pinot.controller.helix.core.PinotHelixResourceManager;
 import org.apache.pinot.segment.spi.SegmentMetadata;
 import org.apache.pinot.spi.filesystem.PinotFSFactory;
+import org.apache.pinot.spi.utils.CommonConstants;
+import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -168,6 +171,44 @@ public class ZKOperator {
 
     // process existing segments
     processExistingSegments(tableNameWithType, uploadType, enableParallelPushProtection, headers, existingSegmentsList);
+  }
+
+  public void completeReingestedSegmentOperations(String realtimeTableName, SegmentMetadata segmentMetadata,
+      URI finalSegmentLocationURI, String sourceDownloadURIStr, String segmentDownloadURIStr, long segmentSizeInBytes)
+      throws Exception {
+    String segmentName = segmentMetadata.getName();
+    ZNRecord segmentMetadataZNRecord =
+        _pinotHelixResourceManager.getSegmentMetadataZnRecord(realtimeTableName, segmentName);
+    if (segmentMetadataZNRecord == null) {
+      throw new ControllerApplicationException(LOGGER, "Failed to find segment ZK metadata for segment: " + segmentName,
+          Response.Status.NOT_FOUND);
+    }
+    int expectedVersion = segmentMetadataZNRecord.getVersion();
+    SegmentZKMetadata segmentZKMetadata = new SegmentZKMetadata(segmentMetadataZNRecord);
+    if (segmentZKMetadata.getStatus() != CommonConstants.Segment.Realtime.Status.COMMITTING) {
+      throw new ControllerApplicationException(LOGGER,
+          "Reingested segment: " + segmentName + " must be in COMMITTING status, but found: "
+              + segmentZKMetadata.getStatus(), Response.Status.CONFLICT);
+    }
+
+    // Copy the segment to the final location
+    copyFromSegmentURIToDeepStore(new URI(sourceDownloadURIStr), finalSegmentLocationURI);
+    LOGGER.info("Copied reingested segment: {} of table: {} to final location: {}", segmentName, realtimeTableName,
+        finalSegmentLocationURI);
+
+    // Update the ZK metadata
+    segmentZKMetadata.setCustomMap(segmentMetadata.getCustomMap());
+    SegmentZKMetadataUtils.updateCommittingSegmentZKMetadata(realtimeTableName, segmentZKMetadata, segmentMetadata,
+        segmentDownloadURIStr, segmentSizeInBytes, segmentZKMetadata.getEndOffset());
+    if (!_pinotHelixResourceManager.updateZkMetadata(realtimeTableName, segmentZKMetadata, expectedVersion)) {
+      throw new RuntimeException(
+          String.format("Failed to update ZK metadata for segment: %s, table: %s, expected version: %d", segmentName,
+              realtimeTableName, expectedVersion));
+    }
+    LOGGER.info("Updated reingested segment: {} of table: {} to property store", segmentName, realtimeTableName);
+
+    // Send a message to servers hosting the table to reset the segment
+    _pinotHelixResourceManager.resetSegment(realtimeTableName, segmentName, null);
   }
 
   /**
@@ -732,16 +773,21 @@ public class ZKOperator {
     } else {
       // In push types other than METADATA, local segmentFile contains the complete segment.
       // Move local segment to final location
-      copyFromSegmentFileToDeepStore(segmentFile, finalSegmentLocationURI);
+      copyFromSegmentFileToDeepStore(segmentFile, finalSegmentLocationURI, tableNameWithType);
       LOGGER.info("Copied segment: {} of table: {} to final location: {}", segmentName, tableNameWithType,
           finalSegmentLocationURI);
     }
   }
 
-  private void copyFromSegmentFileToDeepStore(File segmentFile, URI finalSegmentLocationURI)
+  private void copyFromSegmentFileToDeepStore(File segmentFile, URI finalSegmentLocationURI, String tableNameWithType)
       throws Exception {
     LOGGER.info("Copying segment from: {} to: {}", segmentFile.getAbsolutePath(), finalSegmentLocationURI);
+    String rawTableName = TableNameBuilder.extractRawTableName(tableNameWithType);
+    long segmentSizeInBytes = segmentFile.length();
+    long startTimeMs = System.currentTimeMillis();
+    ResourceUtils.emitPreSegmentUploadMetrics(_controllerMetrics, rawTableName, segmentSizeInBytes);
     PinotFSFactory.create(finalSegmentLocationURI.getScheme()).copyFromLocalFile(segmentFile, finalSegmentLocationURI);
+    ResourceUtils.emitPostSegmentUploadMetrics(_controllerMetrics, rawTableName, startTimeMs, segmentSizeInBytes);
   }
 
   private void copyFromSegmentURIToDeepStore(URI sourceDownloadURI, URI finalSegmentLocationURI)

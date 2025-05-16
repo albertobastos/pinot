@@ -34,6 +34,8 @@ import org.apache.pinot.common.request.context.FunctionContext;
 import org.apache.pinot.common.request.context.LiteralContext;
 import org.apache.pinot.common.utils.HashUtil;
 import org.apache.pinot.core.geospatial.transform.function.GeoToH3Function;
+import org.apache.pinot.core.geospatial.transform.function.GridDiskFunction;
+import org.apache.pinot.core.geospatial.transform.function.GridDistanceFunction;
 import org.apache.pinot.core.geospatial.transform.function.StAreaFunction;
 import org.apache.pinot.core.geospatial.transform.function.StAsBinaryFunction;
 import org.apache.pinot.core.geospatial.transform.function.StAsGeoJsonFunction;
@@ -164,6 +166,7 @@ public class TransformFunctionFactory {
 
     typeToImplementation.put(TransformFunctionType.GROOVY, GroovyTransformFunction.class);
     typeToImplementation.put(TransformFunctionType.CASE, CaseTransformFunction.class);
+    typeToImplementation.put(TransformFunctionType.TEXT_MATCH, TextMatchTransformFunction.class);
 
     typeToImplementation.put(TransformFunctionType.EQUALS, EqualsTransformFunction.class);
     typeToImplementation.put(TransformFunctionType.NOT_EQUALS, NotEqualsTransformFunction.class);
@@ -209,6 +212,8 @@ public class TransformFunctionFactory {
 
     // geo indexing
     typeToImplementation.put(TransformFunctionType.GEO_TO_H3, GeoToH3Function.class);
+    typeToImplementation.put(TransformFunctionType.GRID_DISTANCE, GridDistanceFunction.class);
+    typeToImplementation.put(TransformFunctionType.GRID_DISK, GridDiskFunction.class);
 
     // tuple selection
     typeToImplementation.put(TransformFunctionType.LEAST, LeastTransformFunction.class);
@@ -349,8 +354,8 @@ public class TransformFunctionFactory {
         try {
           transformFunction.init(transformFunctionArguments, columnContextMap, queryContext.isNullHandlingEnabled());
         } catch (Exception e) {
-          throw new BadQueryRequestException("Caught exception while initializing transform function: " + functionName,
-              e);
+          throw new BadQueryRequestException("Caught exception while initializing transform function: "
+              + functionName + ": " + e.getMessage(), e);
         }
         return transformFunction;
       case IDENTIFIER:

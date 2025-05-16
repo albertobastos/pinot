@@ -23,11 +23,9 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.pinot.common.response.ProcessingException;
 import org.apache.pinot.common.utils.DataSchema;
 import org.apache.pinot.query.planner.plannode.JoinNode;
-import org.apache.pinot.query.runtime.blocks.TransferableBlock;
-import org.apache.pinot.query.runtime.blocks.TransferableBlockUtils;
+import org.apache.pinot.query.runtime.blocks.MseBlock;
 import org.apache.pinot.query.runtime.plan.OpChainExecutionContext;
 import org.apache.pinot.spi.utils.CommonConstants.MultiStageQueryRunner.JoinOverFlowMode;
 
@@ -59,18 +57,17 @@ public class NonEquiJoinOperator extends BaseJoinOperator {
   }
 
   @Override
-  protected void buildRightTable()
-      throws ProcessingException {
+  protected void buildRightTable() {
     LOGGER.trace("Building right table for join operator");
     long startTime = System.currentTimeMillis();
-    TransferableBlock rightBlock = _rightInput.nextBlock();
-    while (!TransferableBlockUtils.isEndOfStream(rightBlock)) {
-      List<Object[]> rows = rightBlock.getContainer();
+    MseBlock rightBlock = _rightInput.nextBlock();
+    while (rightBlock.isData()) {
+      List<Object[]> rows = ((MseBlock.Data) rightBlock).asRowHeap().getRows();
       int numRowsInRightTable = _rightTable.size();
       // Row based overflow check.
       if (rows.size() + numRowsInRightTable > _maxRowsInJoin) {
         if (_joinOverflowMode == JoinOverFlowMode.THROW) {
-          throwProcessingExceptionForJoinRowLimitExceeded(
+          throwForJoinRowLimitExceeded(
               "Cannot build in memory right table for join operator, reached number of rows limit: " + _maxRowsInJoin);
         } else {
           // Just fill up the buffer.
@@ -85,25 +82,23 @@ public class NonEquiJoinOperator extends BaseJoinOperator {
       sampleAndCheckInterruption();
       rightBlock = _rightInput.nextBlock();
     }
-    if (rightBlock.isErrorBlock()) {
-      _upstreamErrorBlock = rightBlock;
+    MseBlock.Eos eosBlock = (MseBlock.Eos) rightBlock;
+    if (eosBlock.isError()) {
+      _eos = eosBlock;
     } else {
       _isRightTableBuilt = true;
       if (needUnmatchedRightRows()) {
         _matchedRightRows = new BitSet(_rightTable.size());
       }
-      _rightSideStats = rightBlock.getQueryStats();
-      assert _rightSideStats != null;
     }
     _statMap.merge(StatKey.TIME_BUILDING_HASH_TABLE_MS, System.currentTimeMillis() - startTime);
     LOGGER.trace("Finished building right table for join operator");
   }
 
   @Override
-  protected List<Object[]> buildJoinedRows(TransferableBlock leftBlock)
-      throws ProcessingException {
+  protected List<Object[]> buildJoinedRows(MseBlock.Data leftBlock) {
     ArrayList<Object[]> rows = new ArrayList<>();
-    for (Object[] leftRow : leftBlock.getContainer()) {
+    for (Object[] leftRow : leftBlock.asRowHeap().getRows()) {
       // NOTE: Empty key selector will always give same hash code.
       boolean hasMatchForLeftRow = false;
       int numRightRows = _rightTable.size();

@@ -79,6 +79,7 @@ public abstract class QuickStartBase {
       "examples/batch/githubComplexTypeEvents",
       "examples/batch/billing",
       "examples/batch/fineFoodReviews",
+      "examples/batch/testUnnest",
   };
 
   protected static final Map<String, String> DEFAULT_STREAM_TABLE_DIRECTORIES = ImmutableMap.<String, String>builder()
@@ -289,6 +290,10 @@ public abstract class QuickStartBase {
     } catch (ConfigurationException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  protected Map<String, String> getClusterConfigOverrides() {
+    return Map.of("pinot.broker.grpc.port", "8010");
   }
 
   protected String[] getDefaultBatchTableDirectories() {

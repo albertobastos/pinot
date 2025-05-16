@@ -44,11 +44,12 @@ import org.apache.pinot.core.transport.ChannelHandlerFactory;
 import org.apache.pinot.core.transport.InstanceRequestHandler;
 import org.apache.pinot.core.transport.QueryServer;
 import org.apache.pinot.core.transport.grpc.GrpcQueryServer;
-import org.apache.pinot.segment.local.utils.SegmentPreprocessThrottler;
+import org.apache.pinot.segment.local.utils.SegmentOperationsThrottler;
 import org.apache.pinot.server.access.AccessControl;
 import org.apache.pinot.server.access.AccessControlFactory;
 import org.apache.pinot.server.access.AllowAllAccessFactory;
 import org.apache.pinot.server.conf.ServerConf;
+import org.apache.pinot.server.starter.helix.SendStatsPredicate;
 import org.apache.pinot.server.worker.WorkerQueryServer;
 import org.apache.pinot.spi.env.PinotConfiguration;
 import org.apache.pinot.spi.metrics.PinotMetricUtils;
@@ -76,7 +77,6 @@ public class ServerInstance {
   private final GrpcQueryServer _grpcQueryServer;
   private final AccessControl _accessControl;
   private final HelixManager _helixManager;
-  private final SegmentPreprocessThrottler _segmentPreprocessThrottler;
 
   private final WorkerQueryServer _workerQueryServer;
   private ChannelHandler _instanceRequestHandler;
@@ -85,7 +85,7 @@ public class ServerInstance {
   private boolean _queryServerStarted = false;
 
   public ServerInstance(ServerConf serverConf, HelixManager helixManager, AccessControlFactory accessControlFactory,
-      @Nullable SegmentPreprocessThrottler segmentPreprocessThrottler)
+      @Nullable SegmentOperationsThrottler segmentOperationsThrottler, SendStatsPredicate sendStatsPredicate)
       throws Exception {
     LOGGER.info("Initializing server instance");
     _helixManager = helixManager;
@@ -98,14 +98,16 @@ public class ServerInstance {
     _serverMetrics.initializeGlobalMeters();
     _serverMetrics.setValueOfGlobalGauge(ServerGauge.VERSION, PinotVersion.VERSION_METRIC_NAME, 1);
     ServerMetrics.register(_serverMetrics);
-
-    _segmentPreprocessThrottler = segmentPreprocessThrottler;
+    if (segmentOperationsThrottler != null) {
+      // Initialize the metrics for the throttler so it picks up the newly registered ServerMetrics object
+      segmentOperationsThrottler.initializeMetrics();
+    }
 
     String instanceDataManagerClassName = serverConf.getInstanceDataManagerClassName();
     LOGGER.info("Initializing instance data manager of class: {}", instanceDataManagerClassName);
     _instanceDataManager = PluginManager.get().createInstance(instanceDataManagerClassName);
     _instanceDataManager.init(serverConf.getInstanceDataManagerConfig(), helixManager, _serverMetrics,
-        _segmentPreprocessThrottler);
+        segmentOperationsThrottler);
 
     // Initialize ServerQueryLogger and FunctionRegistry before starting the query executor
     ServerQueryLogger.init(serverConf.getQueryLogMaxRate(), serverConf.getQueryLogDroppedReportMaxRate(),
@@ -132,9 +134,8 @@ public class ServerInstance {
 
     if (serverConf.isMultiStageServerEnabled()) {
       LOGGER.info("Initializing Multi-stage query engine");
-      _workerQueryServer =
-          new WorkerQueryServer(serverConf.getPinotConfig(), _instanceDataManager, helixManager, _serverMetrics,
-              serverConf.isMultiStageEngineTlsEnabled() ? tlsConfig : null);
+      _workerQueryServer = new WorkerQueryServer(serverConf.getPinotConfig(), _instanceDataManager,
+          serverConf.isMultiStageEngineTlsEnabled() ? tlsConfig : null, sendStatsPredicate);
     } else {
       _workerQueryServer = null;
     }

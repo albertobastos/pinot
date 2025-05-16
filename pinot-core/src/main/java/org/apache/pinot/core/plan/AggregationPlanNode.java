@@ -49,10 +49,10 @@ import static org.apache.pinot.segment.spi.AggregationFunctionType.*;
 @SuppressWarnings("rawtypes")
 public class AggregationPlanNode implements PlanNode {
   private static final EnumSet<AggregationFunctionType> DICTIONARY_BASED_FUNCTIONS =
-      EnumSet.of(MIN, MINMV, MAX, MAXMV, MINMAXRANGE, MINMAXRANGEMV, DISTINCTCOUNT, DISTINCTCOUNTMV, DISTINCTCOUNTHLL,
-          DISTINCTCOUNTHLLMV, DISTINCTCOUNTRAWHLL, DISTINCTCOUNTRAWHLLMV, SEGMENTPARTITIONEDDISTINCTCOUNT,
-          DISTINCTCOUNTSMARTHLL, DISTINCTSUM, DISTINCTAVG, DISTINCTSUMMV, DISTINCTAVGMV, DISTINCTCOUNTHLLPLUS,
-          DISTINCTCOUNTHLLPLUSMV, DISTINCTCOUNTRAWHLLPLUS, DISTINCTCOUNTRAWHLLPLUSMV);
+      EnumSet.of(MIN, MINMV, MAX, MAXMV, MINMAXRANGE, MINMAXRANGEMV, DISTINCTCOUNT, DISTINCTCOUNTMV, DISTINCTSUM,
+          DISTINCTSUMMV, DISTINCTAVG, DISTINCTAVGMV, DISTINCTCOUNTOFFHEAP, DISTINCTCOUNTHLL, DISTINCTCOUNTHLLMV,
+          DISTINCTCOUNTRAWHLL, DISTINCTCOUNTRAWHLLMV, DISTINCTCOUNTHLLPLUS, DISTINCTCOUNTHLLPLUSMV,
+          DISTINCTCOUNTRAWHLLPLUS, DISTINCTCOUNTRAWHLLPLUSMV, SEGMENTPARTITIONEDDISTINCTCOUNT, DISTINCTCOUNTSMARTHLL);
 
   // DISTINCTCOUNT excluded because consuming segment metadata contains unknown cardinality when there is no dictionary
   private static final EnumSet<AggregationFunctionType> METADATA_BASED_FUNCTIONS =
@@ -101,12 +101,17 @@ public class AggregationPlanNode implements PlanNode {
     FilterPlanNode filterPlanNode = new FilterPlanNode(_segmentContext, _queryContext);
     BaseFilterOperator filterOperator = filterPlanNode.run();
 
+    // Priority 1: Check if star-tree based aggregation is feasible
+    AggregationInfo aggregationInfo = AggregationFunctionUtils.buildAggregationInfoWithStarTree(_segmentContext,
+        _queryContext, aggregationFunctions, _queryContext.getFilter(), filterOperator,
+        filterPlanNode.getPredicateEvaluators());
+    if (aggregationInfo != null) {
+      return new AggregationOperator(_queryContext, aggregationInfo, numTotalDocs);
+    }
+
     boolean hasNullValues = _queryContext.isNullHandlingEnabled() && hasNullValues(aggregationFunctions);
     if (!hasNullValues) {
-      if (canOptimizeFilteredCount(filterOperator, aggregationFunctions)) {
-        return new FastFilteredCountOperator(_queryContext, filterOperator, _indexSegment.getSegmentMetadata());
-      }
-
+      // Priority 2: Check if non-scan based aggregation is feasible
       if (filterOperator.isResultMatchingAll() && isFitForNonScanBasedPlan(aggregationFunctions, _indexSegment)) {
         DataSource[] dataSources = new DataSource[aggregationFunctions.length];
         for (int i = 0; i < aggregationFunctions.length; i++) {
@@ -118,11 +123,16 @@ public class AggregationPlanNode implements PlanNode {
         }
         return new NonScanBasedAggregationOperator(_queryContext, dataSources, numTotalDocs);
       }
+
+      // Priority 3: Check if fast filtered count can be used
+      if (canOptimizeFilteredCount(filterOperator, aggregationFunctions)) {
+        return new FastFilteredCountOperator(_queryContext, filterOperator, _indexSegment.getSegmentMetadata());
+      }
     }
 
-    AggregationInfo aggregationInfo =
-        AggregationFunctionUtils.buildAggregationInfo(_segmentContext, _queryContext, aggregationFunctions,
-            _queryContext.getFilter(), filterOperator, filterPlanNode.getPredicateEvaluators());
+    // Default:
+    aggregationInfo = AggregationFunctionUtils.buildAggregationInfoWithoutStarTree(_segmentContext, _queryContext,
+        aggregationFunctions, filterOperator);
     return new AggregationOperator(_queryContext, aggregationInfo, numTotalDocs);
   }
 

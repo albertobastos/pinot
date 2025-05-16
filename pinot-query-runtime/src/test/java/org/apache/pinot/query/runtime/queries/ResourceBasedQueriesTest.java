@@ -46,7 +46,7 @@ import org.apache.pinot.query.mailbox.MailboxService;
 import org.apache.pinot.query.planner.physical.DispatchablePlanFragment;
 import org.apache.pinot.query.routing.QueryServerInstance;
 import org.apache.pinot.query.runtime.MultiStageStatsTreeBuilder;
-import org.apache.pinot.query.runtime.operator.LeafStageTransferableBlockOperator;
+import org.apache.pinot.query.runtime.operator.LeafOperator;
 import org.apache.pinot.query.runtime.plan.MultiStageQueryStats;
 import org.apache.pinot.query.service.dispatch.QueryDispatcher;
 import org.apache.pinot.query.testutils.MockInstanceDataManagerFactory;
@@ -222,8 +222,8 @@ public class ResourceBasedQueriesTest extends QueryRunnerTestBase {
     // this is only use for test identifier purpose.
     int port1 = server1.getPort();
     int port2 = server2.getPort();
-    _servers.put(new QueryServerInstance("localhost", port1, port1), server1);
-    _servers.put(new QueryServerInstance("localhost", port2, port2), server2);
+    _servers.put(new QueryServerInstance("Server_localhost_" + port1, "localhost", port1, port1), server1);
+    _servers.put(new QueryServerInstance("Server_localhost_" + port2, "localhost", port2, port2), server2);
 
     _queryEnvironment = QueryEnvironmentTestBase.getQueryEnvironment(_reducerPort, server1.getPort(), server2.getPort(),
         factory1.getRegisteredSchemaMap(), factory1.buildTableSegmentNameMap(), factory2.buildTableSegmentNameMap(),
@@ -287,7 +287,7 @@ public class ResourceBasedQueriesTest extends QueryRunnerTestBase {
 
   private Map<String, JsonNode> tableToStats(String sql, QueryDispatcher.QueryResult queryResult) {
 
-    List<DispatchablePlanFragment> planNodes = planQuery(sql).getQueryPlan().getQueryStageList();
+    Map<Integer, DispatchablePlanFragment> planNodes = planQuery(sql).getQueryPlan().getQueryStageMap();
 
     MultiStageStatsTreeBuilder multiStageStatsTreeBuilder =
         new MultiStageStatsTreeBuilder(planNodes, queryResult.getQueryStats());
@@ -337,7 +337,7 @@ public class ResourceBasedQueriesTest extends QueryRunnerTestBase {
         }
 
         Assert.assertNotNull(_tableToSegmentMap.get(tableName));
-        String statName = LeafStageTransferableBlockOperator.StatKey.NUM_SEGMENTS_QUERIED.getStatName();
+        String statName = LeafOperator.StatKey.NUM_SEGMENTS_QUERIED.getStatName();
         int numSegmentsQueried = entry.getValue().get(statName).asInt();
         Assert.assertEquals(numSegmentsQueried, _tableToSegmentMap.get(tableName).size());
       }

@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixManager;
@@ -61,6 +62,7 @@ public class MultiStageQueryThrottler implements ClusterChangeHandler {
    */
   private int _maxServerQueryThreads;
   private AdjustableSemaphore _semaphore;
+  private final AtomicInteger _currentQueryServerThreads = new AtomicInteger();
 
   @Override
   public void init(HelixManager helixManager) {
@@ -106,6 +108,7 @@ public class MultiStageQueryThrottler implements ClusterChangeHandler {
   public boolean tryAcquire(int numQueryThreads, long timeout, TimeUnit unit)
       throws InterruptedException {
     if (_maxServerQueryThreads <= 0) {
+      _currentQueryServerThreads.addAndGet(numQueryThreads);
       return true;
     }
 
@@ -116,7 +119,11 @@ public class MultiStageQueryThrottler implements ClusterChangeHandler {
               + "'. Consider increasing the value of this configuration");
     }
 
-    return _semaphore.tryAcquire(numQueryThreads, timeout, unit);
+    boolean result = _semaphore.tryAcquire(numQueryThreads, timeout, unit);
+    if (result) {
+      _currentQueryServerThreads.addAndGet(numQueryThreads);
+    }
+    return result;
   }
 
   /**
@@ -124,6 +131,7 @@ public class MultiStageQueryThrottler implements ClusterChangeHandler {
    * method is called exactly once for each call to {@link #tryAcquire(int, long, TimeUnit)}.
    */
   public void release(int numQueryThreads) {
+    _currentQueryServerThreads.addAndGet(-1 * numQueryThreads);
     if (_maxServerQueryThreads > 0) {
       _semaphore.release(numQueryThreads);
     }
@@ -175,6 +183,10 @@ public class MultiStageQueryThrottler implements ClusterChangeHandler {
       }
       _maxServerQueryThreads = maxServerQueryThreads;
     }
+  }
+
+  public int currentQueryServerThreads() {
+    return _currentQueryServerThreads.get();
   }
 
   @VisibleForTesting
